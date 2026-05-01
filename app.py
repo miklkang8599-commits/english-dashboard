@@ -38,8 +38,8 @@ ASSIGN_COLS = {
 
 # ── 工具函式 ──────────────────────────────────────────────────────────────────
 def get_now():
-    import pytz
-    return datetime.now(pytz.timezone("Asia/Taipei"))
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("Asia/Taipei"))
 
 def is_admin(group_id):
     return str(group_id).upper() in ["ADMIN", "TEACHER"]
