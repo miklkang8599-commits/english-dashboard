@@ -4,6 +4,21 @@
 # ║  查詢相同 Supabase，只載入需要的資料，速度更快            ║
 # ╚══════════════════════════════════════════════════════════╝
 
+import subprocess, sys
+
+def _install(pkg):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "-q"])
+
+try:
+    import supabase
+except ImportError:
+    _install("supabase")
+
+try:
+    from streamlit_gsheets import GSheetsConnection
+except ImportError:
+    _install("streamlit-gsheets-connection")
+
 import streamlit as st
 import pandas as pd
 import re
