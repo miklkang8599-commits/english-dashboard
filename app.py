@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.7                                      ║
+# ║  dashboard.py  V1.8                                      ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.7"
+DASHBOARD_VERSION = "1.8"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -108,6 +108,84 @@ def load_students():
         return df
     except:
         return pd.DataFrame()
+
+# 題型工作表對應
+_QTYPE_SHEETS = {
+    "單選":   {"sheet": "單選",   "key": ["版本","年度","冊編號","課編號","句編號"], "content": "單選題目"},
+    "重組":   {"sheet": "重組",   "key": ["版本","年度","冊編號","課編號","句編號"], "content": "重組英文答案"},
+    "閱讀單句":{"sheet":"閱讀單句","key": ["版本","年度","冊編號","課編號","句編號"], "content": "題目"},
+    "朗讀":   {"sheet": "朗讀",   "key": ["版本","年度","冊編號","課編號","句編號"], "content": "朗讀句子"},
+    "拼單字": {"sheet": "拼單字", "key": ["版本","年度","冊編號","課編號","句編號"], "content": "英文單字"},
+    "聽力音標":{"sheet":"聽力音標","key": ["版本","單元編號","組編號","符號編號"],   "content": "KK符號"},
+    "聽力重組":{"sheet":"聽力重組","key": ["版本","年度","冊編號","課編號","句編號"], "content": "聽力重組英文答案"},
+    "聽力單字":{"sheet":"聽力單字","key": ["版本","單元編號","組編號","符號編號"],   "content": "KK符號"},
+}
+
+@st.cache_data(ttl=600)
+def load_question_sheet(sheet_name: str) -> pd.DataFrame:
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        df   = conn.read(worksheet=sheet_name, ttl=600).fillna("").astype(str)
+        return df
+    except:
+        return pd.DataFrame()
+
+def _parse_qid(qid: str):
+    """
+    解析 question_id，例如 '南一_112_2_單選_1_13'
+    回傳 (版本, 年度, 冊編號, 課編號, 句編號, 題型)
+    """
+    parts = str(qid).split("_")
+    # 找題型位置
+    for i, p in enumerate(parts):
+        if p in _QTYPE_SHEETS:
+            qtype = p
+            # 版本=parts[0], 年度=parts[1], 冊=parts[2], 課=parts[i+1], 句=parts[i+2]
+            version = parts[0] if len(parts) > 0 else ""
+            nendo   = parts[1] if len(parts) > 1 else ""
+            册号    = parts[2] if len(parts) > 2 else ""
+            course  = parts[i+1] if len(parts) > i+1 else ""
+            sent    = parts[i+2] if len(parts) > i+2 else ""
+            return {"版本": version, "年度": nendo, "冊編號": 册号,
+                    "課編號": course, "句編號": sent, "題型": qtype}
+    return None
+
+@st.cache_data(ttl=600)
+def build_question_lookup(qids: tuple) -> dict:
+    """給定一組 question_id，回傳 {qid: 題目內容} 字典"""
+    # 依題型分組
+    by_type = {}
+    parsed  = {}
+    for qid in qids:
+        p = _parse_qid(qid)
+        if p:
+            parsed[qid] = p
+            by_type.setdefault(p["題型"], []).append(qid)
+
+    result = {}
+    for qtype, ids in by_type.items():
+        cfg = _QTYPE_SHEETS.get(qtype)
+        if not cfg:
+            continue
+        df = load_question_sheet(cfg["sheet"])
+        if df.empty:
+            continue
+        content_col = cfg["content"]
+        key_cols    = cfg["key"]
+        # 確認欄位存在
+        missing = [c for c in key_cols + [content_col] if c not in df.columns]
+        if missing:
+            continue
+        for qid in ids:
+            p = parsed[qid]
+            mask = pd.Series([True] * len(df), index=df.index)
+            for col in key_cols:
+                if col in p:
+                    mask &= df[col].astype(str).str.strip() == str(p[col]).strip()
+            rows = df[mask]
+            if not rows.empty:
+                result[qid] = str(rows.iloc[0][content_col])
+    return result
 
 # ── 登入 ──────────────────────────────────────────────────────────────────────
 if 'dash_logged_in' not in st.session_state:
@@ -284,10 +362,12 @@ with tab_monitor:
                         )
                     else:
                         disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
-                # 題目ID 去掉 [Txxxxxxx] 前綴
+                # 題目ID → 題目內容
                 if "題目ID" in disp.columns:
+                    qids = tuple(disp["題目ID"].astype(str).str.strip().unique())
+                    q_lookup = build_question_lookup(qids)
                     disp["題目ID"] = disp["題目ID"].apply(
-                        lambda x: re.sub(r'^\[T\d+\]\s*', '', str(x)).strip()
+                        lambda x: q_lookup.get(str(x).strip(), re.sub(r'^\[T\d+\]\s*', '', str(x)).strip())
                     )
                 # 欄位寬度設定
                 col_cfg = {}
