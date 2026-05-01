@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.10                                     ║
+# ║  dashboard.py  V1.11                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.10"
+DASHBOARD_VERSION = "1.11"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -111,14 +111,16 @@ def load_students():
 
 # 題型工作表對應：content=題目欄, answer=答案欄
 _QTYPE_SHEETS = {
-    "單選":    {"sheet": "單選",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "單選題目",       "answer": "單選答案"},
-    "重組":    {"sheet": "重組",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "重組中文題目",    "answer": "重組英文答案"},
-    "閱讀單句":{"sheet": "閱讀單句","key": ["版本","年度","冊編號","課編號","句編號"], "content": "題目",           "answer": "答案"},
-    "朗讀":    {"sheet": "朗讀",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "朗讀句子",       "answer": ""},
-    "拼單字":  {"sheet": "拼單字",  "key": ["版本","年度","冊編號","課編號","句編號"], "content": "中文意思",       "answer": "英文單字"},
-    "聽力音標":{"sheet": "聽力音標","key": ["版本","單元編號","組編號","符號編號"],   "content": "KK符號",         "answer": ""},
-    "聽力重組":{"sheet": "聽力重組","key": ["版本","年度","冊編號","課編號","句編號"], "content": "聽力重組英文答案","answer": ""},
-    "聽力單字":{"sheet": "聽力單字","key": ["版本","單元編號","組編號","符號編號"],   "content": "單字",           "answer": ""},
+    "單選":    {"sheet": "單選",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "單選題目",        "answer": "單選答案"},
+    "重組":    {"sheet": "重組",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "重組中文題目",     "answer": "重組英文答案"},
+    "閱讀重組":{"sheet": "重組",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "重組中文題目",     "answer": "重組英文答案"},
+    "閱讀單句":{"sheet": "閱讀單句","key": ["版本","年度","冊編號","課編號","句編號"], "content": "題目",            "answer": "答案"},
+    "朗讀":    {"sheet": "朗讀",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "朗讀句子",        "answer": ""},
+    "拼單字":  {"sheet": "拼單字",  "key": ["版本","年度","冊編號","課編號","句編號"], "content": "中文意思",        "answer": "英文單字"},
+    "單字重組":{"sheet": "拼單字",  "key": ["版本","年度","冊編號","課編號","句編號"], "content": "中文意思",        "answer": "英文單字"},
+    "聽力音標":{"sheet": "聽力音標","key": ["版本","單元編號","組編號","符號編號"],    "content": "",               "answer": "KK符號"},
+    "聽力重組":{"sheet": "聽力重組","key": ["版本","年度","冊編號","課編號","句編號"], "content": "",               "answer": "聽力重組英文答案"},
+    "聽力單字":{"sheet": "聽力單字","key": ["版本","單元編號","組編號","符號編號"],    "content": "",               "answer": "單字"},
 }
 
 @st.cache_data(ttl=600)
@@ -184,9 +186,12 @@ def build_question_lookup(qids: tuple) -> dict:
             rows = df[mask]
             if not rows.empty:
                 row = rows.iloc[0]
+                content = str(row[content_col]) if content_col and content_col in df.columns else ""
+                answer  = str(row[answer_col])  if answer_col  and answer_col  in df.columns else ""
+                # 沒有題目欄的題型（聽力類），用答案當顯示內容
                 result[qid] = {
-                    "題目": str(row[content_col]),
-                    "答案": str(row[answer_col]) if answer_col and answer_col in df.columns else ""
+                    "題目": content if content else answer,
+                    "答案": answer
                 }
     return result
 
