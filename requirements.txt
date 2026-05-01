@@ -1,0 +1,7 @@
+st-gsheets-connection
+pandas
+openai
+supabase
+reportlab
+google-api-python-client
+gspread
