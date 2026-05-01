@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.0"
+DASHBOARD_VERSION = "1.1"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -236,16 +236,28 @@ with tab_monitor:
             return str(t_str)[:16]
 
     def _clean_task_name(name):
-        """去掉任務名稱結尾的『　AA　2026-04-16 ～ 2026-09-30』部分"""
+        """去掉任務名稱第一個全形空格（\u3000）後的所有內容"""
         s = str(name)
-        # 以全形空白或半形空白+日期格式為切割點
-        s = re.split(r'[\u3000\s]{1,}[A-Z]{2}[\u3000\s]{1,}\d{4}-\d{2}-\d{2}', s)[0]
+        idx = s.find('\u3000')  # 全形空格
+        if idx != -1:
+            s = s[:idx]
         return s.strip()
 
     # 學生清單（縮排，展開後顯示詳細答題）
     if not df_lf_ans.empty and "姓名" in df_lf_ans.columns:
         st.markdown("**👥 學生答題狀況**")
-        student_names = sorted(df_lf_ans["姓名"].unique().tolist())
+        # 依 students 工作表 note1 欄升冪排列
+        if not df_s.empty and "姓名" in df_s.columns and "note1" in df_s.columns:
+            df_s_order = df_s[["姓名","note1"]].copy()
+            df_s_order["_note1_num"] = pd.to_numeric(df_s_order["note1"], errors="coerce")
+            df_s_order = df_s_order.sort_values("_note1_num")
+            ordered_names = df_s_order["姓名"].tolist()
+            present = set(df_lf_ans["姓名"].unique())
+            student_names = [n for n in ordered_names if n in present]
+            # 有答題但不在 students 名單的，補在最後
+            student_names += sorted([n for n in present if n not in set(student_names)])
+        else:
+            student_names = sorted(df_lf_ans["姓名"].unique().tolist())
         for stu in student_names:
             stu_df = df_lf_ans[df_lf_ans["姓名"] == stu].copy()
             ok  = len(stu_df[stu_df["結果"] == "✅"])
