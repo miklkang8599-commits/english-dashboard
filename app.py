@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.1"
+DASHBOARD_VERSION = "1.2"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -271,9 +271,19 @@ with tab_monitor:
                 # 時間加星期
                 if "時間" in disp.columns:
                     disp["時間"] = disp["時間"].apply(_fmt_time_with_weekday)
-                # 任務名稱去序號後綴
+                # 任務名稱：用任務編號對應 assignments 完整名稱，再截掉全形空格後綴
                 if "任務名稱" in disp.columns:
-                    disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
+                    if not df_a.empty and "任務編號" in df_a.columns and "任務名稱" in df_a.columns:
+                        tid_to_name = {
+                            str(r["任務編號"]): _clean_task_name(r["任務名稱"])
+                            for _, r in df_a.iterrows()
+                            if str(r.get("任務編號","")).strip()
+                        }
+                        disp["任務名稱"] = disp["任務名稱"].apply(
+                            lambda x: tid_to_name.get(str(x).strip(), _clean_task_name(x))
+                        )
+                    else:
+                        disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
                 # 欄位寬度設定
                 col_cfg = {}
                 if "時間"   in disp.columns: col_cfg["時間"]   = st.column_config.TextColumn("時間",   width=120)
