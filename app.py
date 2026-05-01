@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.13                                     ║
+# ║  dashboard.py  V1.14                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.13"
+DASHBOARD_VERSION = "1.14"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -380,22 +380,28 @@ with tab_monitor:
                         )
                     else:
                         disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
-                # 題目ID → 題目內容
+                # 題目ID → 題目內容，並新增正確答案欄
                 if "題目ID" in disp.columns:
                     qids = tuple(disp["題目ID"].astype(str).str.strip().unique())
                     q_lookup = build_question_lookup(qids)
+                    disp["正確答案"] = disp["題目ID"].apply(
+                        lambda x: q_lookup.get(str(x).strip(), {}).get("答案", "")
+                    )
                     disp["題目ID"] = disp["題目ID"].apply(
                         lambda x: q_lookup.get(str(x).strip(), {}).get("題目", re.sub(r'^\[T\d+\]\s*', '', str(x)).strip())
                     )
                 # 欄位寬度設定
                 col_cfg = {}
-                if "時間"     in disp.columns: col_cfg["時間"]     = st.column_config.TextColumn("時間",   width=80)
-                if "分組"     in disp.columns: col_cfg["分組"]     = st.column_config.TextColumn("班級",   width=20)
-                if "題目ID"   in disp.columns: col_cfg["題目ID"]   = st.column_config.TextColumn("題目",   width=120)
-                if "結果"     in disp.columns: col_cfg["結果"]     = st.column_config.TextColumn("結果",   width=30)
-                if "學生答案" in disp.columns: col_cfg["學生答案"] = st.column_config.TextColumn("答案",   width=120)
-                if "任務名稱" in disp.columns: col_cfg["任務名稱"] = st.column_config.TextColumn("題目", width=None)
-                st.dataframe(disp, use_container_width=True, hide_index=True, column_config=col_cfg, height=40*35+38)
+                if "時間"     in disp.columns: col_cfg["時間"]     = st.column_config.TextColumn("時間",     width=80)
+                if "分組"     in disp.columns: col_cfg["分組"]     = st.column_config.TextColumn("班級",     width=20)
+                if "題目ID"   in disp.columns: col_cfg["題目ID"]   = st.column_config.TextColumn("題目",     width=120)
+                if "結果"     in disp.columns: col_cfg["結果"]     = st.column_config.TextColumn("結果",     width=30)
+                if "學生答案" in disp.columns: col_cfg["學生答案"] = st.column_config.TextColumn("學生答案", width=120)
+                if "正確答案" in disp.columns: col_cfg["正確答案"] = st.column_config.TextColumn("正確答案", width=120)
+                if "任務名稱" in disp.columns: col_cfg["任務名稱"] = st.column_config.TextColumn("任務名稱", width=None)
+                # 調整欄位順序：時間、班級、題目、結果、學生答案、正確答案、任務名稱
+                ordered_cols = [c for c in ["時間","分組","題目ID","結果","學生答案","正確答案","任務名稱"] if c in disp.columns]
+                st.dataframe(disp[ordered_cols], use_container_width=True, hide_index=True, column_config=col_cfg, height=40*35+38)
     elif df_lf_ans.empty:
         st.info("此時間範圍內無答題資料")
 
