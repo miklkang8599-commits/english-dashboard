@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.16                                     ║
+# ║  dashboard.py  V1.17                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.16"
+DASHBOARD_VERSION = "1.17"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -394,14 +394,14 @@ with tab_monitor:
                 col_cfg = {}
                 if "時間"     in disp.columns: col_cfg["時間"]     = st.column_config.TextColumn("時間",     width=60)
                 if "分組"     in disp.columns: col_cfg["分組"]     = st.column_config.TextColumn("班級",     width=20)
-                if "題目ID"   in disp.columns: col_cfg["題目ID"]   = st.column_config.TextColumn("題目",     width=None)
+                if "題目ID"   in disp.columns: col_cfg["題目ID"]   = st.column_config.TextColumn("題目",     width=None, help=None)
                 if "結果"     in disp.columns: col_cfg["結果"]     = st.column_config.TextColumn("結果",     width=20)
                 if "學生答案" in disp.columns: col_cfg["學生答案"] = st.column_config.TextColumn("學生答案", width=20)
                 if "正確答案" in disp.columns: col_cfg["正確答案"] = st.column_config.TextColumn("正確答案", width=20)
                 if "任務名稱" in disp.columns: col_cfg["任務名稱"] = st.column_config.TextColumn("任務名稱", width=50)
                 # 調整欄位順序：時間、班級、題目、結果、學生答案、正確答案、任務名稱
                 ordered_cols = [c for c in ["時間","分組","題目ID","結果","學生答案","正確答案","任務名稱"] if c in disp.columns]
-                st.dataframe(disp[ordered_cols], use_container_width=True, hide_index=True, column_config=col_cfg, height=40*35+38)
+                st.dataframe(disp[ordered_cols], use_container_width=True, hide_index=True, column_config=col_cfg, wrap=True)
     elif df_lf_ans.empty:
         st.info("此時間範圍內無答題資料")
 
