@@ -1,0 +1,3 @@
+st-gsheets-connection
+pandas
+supabase
