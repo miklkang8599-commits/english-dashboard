@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.8                                      ║
+# ║  dashboard.py  V1.9                                      ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.8"
+DASHBOARD_VERSION = "1.9"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -109,16 +109,16 @@ def load_students():
     except:
         return pd.DataFrame()
 
-# 題型工作表對應
+# 題型工作表對應：content=題目欄, answer=答案欄
 _QTYPE_SHEETS = {
-    "單選":   {"sheet": "單選",   "key": ["版本","年度","冊編號","課編號","句編號"], "content": "單選題目"},
-    "重組":   {"sheet": "重組",   "key": ["版本","年度","冊編號","課編號","句編號"], "content": "重組英文答案"},
-    "閱讀單句":{"sheet":"閱讀單句","key": ["版本","年度","冊編號","課編號","句編號"], "content": "題目"},
-    "朗讀":   {"sheet": "朗讀",   "key": ["版本","年度","冊編號","課編號","句編號"], "content": "朗讀句子"},
-    "拼單字": {"sheet": "拼單字", "key": ["版本","年度","冊編號","課編號","句編號"], "content": "英文單字"},
-    "聽力音標":{"sheet":"聽力音標","key": ["版本","單元編號","組編號","符號編號"],   "content": "KK符號"},
-    "聽力重組":{"sheet":"聽力重組","key": ["版本","年度","冊編號","課編號","句編號"], "content": "聽力重組英文答案"},
-    "聽力單字":{"sheet":"聽力單字","key": ["版本","單元編號","組編號","符號編號"],   "content": "KK符號"},
+    "單選":    {"sheet": "單選",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "單選題目",       "answer": "單選答案"},
+    "重組":    {"sheet": "重組",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "重組中文題目",    "answer": "重組英文答案"},
+    "閱讀單句":{"sheet": "閱讀單句","key": ["版本","年度","冊編號","課編號","句編號"], "content": "題目",           "answer": "答案"},
+    "朗讀":    {"sheet": "朗讀",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "朗讀句子",       "answer": ""},
+    "拼單字":  {"sheet": "拼單字",  "key": ["版本","年度","冊編號","課編號","句編號"], "content": "中文意思",       "answer": "英文單字"},
+    "聽力音標":{"sheet": "聽力音標","key": ["版本","單元編號","組編號","符號編號"],   "content": "KK符號",         "answer": ""},
+    "聽力重組":{"sheet": "聽力重組","key": ["版本","年度","冊編號","課編號","句編號"], "content": "聽力重組英文答案","answer": ""},
+    "聽力單字":{"sheet": "聽力單字","key": ["版本","單元編號","組編號","符號編號"],   "content": "單字",           "answer": ""},
 }
 
 @st.cache_data(ttl=600)
@@ -152,8 +152,7 @@ def _parse_qid(qid: str):
 
 @st.cache_data(ttl=600)
 def build_question_lookup(qids: tuple) -> dict:
-    """給定一組 question_id，回傳 {qid: 題目內容} 字典"""
-    # 依題型分組
+    """給定一組 question_id，回傳 {qid: {'題目': ..., '答案': ...}} 字典"""
     by_type = {}
     parsed  = {}
     for qid in qids:
@@ -171,8 +170,8 @@ def build_question_lookup(qids: tuple) -> dict:
         if df.empty:
             continue
         content_col = cfg["content"]
+        answer_col  = cfg.get("answer", "")
         key_cols    = cfg["key"]
-        # 確認欄位存在
         missing = [c for c in key_cols + [content_col] if c not in df.columns]
         if missing:
             continue
@@ -184,7 +183,11 @@ def build_question_lookup(qids: tuple) -> dict:
                     mask &= df[col].astype(str).str.strip() == str(p[col]).strip()
             rows = df[mask]
             if not rows.empty:
-                result[qid] = str(rows.iloc[0][content_col])
+                row = rows.iloc[0]
+                result[qid] = {
+                    "題目": str(row[content_col]),
+                    "答案": str(row[answer_col]) if answer_col and answer_col in df.columns else ""
+                }
     return result
 
 # ── 登入 ──────────────────────────────────────────────────────────────────────
@@ -367,7 +370,7 @@ with tab_monitor:
                     qids = tuple(disp["題目ID"].astype(str).str.strip().unique())
                     q_lookup = build_question_lookup(qids)
                     disp["題目ID"] = disp["題目ID"].apply(
-                        lambda x: q_lookup.get(str(x).strip(), re.sub(r'^\[T\d+\]\s*', '', str(x)).strip())
+                        lambda x: q_lookup.get(str(x).strip(), {}).get("題目", re.sub(r'^\[T\d+\]\s*', '', str(x)).strip())
                     )
                 # 欄位寬度設定
                 col_cfg = {}
