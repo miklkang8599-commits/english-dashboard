@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.12                                     ║
+# ║  dashboard.py  V1.13                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.12"
+DASHBOARD_VERSION = "1.13"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -174,15 +174,25 @@ def build_question_lookup(qids: tuple) -> dict:
         content_col = cfg["content"]
         answer_col  = cfg.get("answer", "")
         key_cols    = cfg["key"]
-        missing = [c for c in key_cols + [content_col] if c not in df.columns]
+        # content_col 可能為空（聽力類），只檢查非空的
+        check_cols = [c for c in key_cols + ([content_col] if content_col else []) if c]
+        missing = [c for c in check_cols if c not in df.columns]
         if missing:
             continue
         for qid in ids:
             p = parsed[qid]
             mask = pd.Series([True] * len(df), index=df.index)
             for col in key_cols:
-                if col in p:
-                    mask &= df[col].astype(str).str.strip() == str(p[col]).strip()
+                if col in p and col in df.columns:
+                    val = str(p[col]).strip()
+                    # 處理 Google Sheet 數字欄位可能是 '1.0' 的情況
+                    def _norm(x):
+                        s = str(x).strip()
+                        try:
+                            return str(int(float(s)))
+                        except:
+                            return s
+                    mask &= df[col].apply(_norm) == _norm(val)
             rows = df[mask]
             if not rows.empty:
                 row = rows.iloc[0]
