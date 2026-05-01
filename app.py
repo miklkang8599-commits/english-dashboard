@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.5                                      ║
+# ║  dashboard.py  V1.6                                      ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.5"
+DASHBOARD_VERSION = "1.6"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -227,13 +227,13 @@ with tab_monitor:
     # ── 工具：時間加星期 ──────────────────────────────────────────────
     _WEEKDAY_CN = ["一","二","三","四","五","六","日"]
     def _fmt_time_with_weekday(t_str):
-        """把 '2026-04-16 15:09' 轉成 '04-16(三) 15:09'"""
+        """把 '2026-04-16 15:09:32' 轉成 '04-16(三) 15:09:32'"""
         try:
-            dt = pd.to_datetime(str(t_str)[:16])
+            dt = pd.to_datetime(str(t_str)[:19])
             wd = _WEEKDAY_CN[dt.weekday()]
-            return dt.strftime(f"%m-%d({wd}) %H:%M")
+            return dt.strftime(f"%m-%d({wd}) %H:%M:%S")
         except:
-            return str(t_str)[:16]
+            return str(t_str)[:19]
 
     def _clean_task_name(name):
         """去掉任務名稱第一個全形空格（\u3000）後的所有內容"""
@@ -292,9 +292,9 @@ with tab_monitor:
                 # 欄位寬度設定
                 col_cfg = {}
                 if "時間"     in disp.columns: col_cfg["時間"]     = st.column_config.TextColumn("時間",   width=80)
-                if "分組"     in disp.columns: col_cfg["分組"]     = st.column_config.TextColumn("班級",   width=40)
+                if "分組"     in disp.columns: col_cfg["分組"]     = st.column_config.TextColumn("班級",   width=20)
                 if "題目ID"   in disp.columns: col_cfg["題目ID"]   = st.column_config.TextColumn("題目",   width=120)
-                if "結果"     in disp.columns: col_cfg["結果"]     = st.column_config.TextColumn("結果",   width=40)
+                if "結果"     in disp.columns: col_cfg["結果"]     = st.column_config.TextColumn("結果",   width=30)
                 if "學生答案" in disp.columns: col_cfg["學生答案"] = st.column_config.TextColumn("答案",   width=120)
                 if "任務名稱" in disp.columns: col_cfg["任務名稱"] = st.column_config.TextColumn("任務名稱", width=None)
                 st.dataframe(disp, use_container_width=True, hide_index=True, column_config=col_cfg, height=40*35+38)
