@@ -1,0 +1,347 @@
+# ╔══════════════════════════════════════════════════════════╗
+# ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
+# ║  dashboard.py  V1.0                                      ║
+# ║  查詢相同 Supabase，只載入需要的資料，速度更快            ║
+# ╚══════════════════════════════════════════════════════════╝
+
+import streamlit as st
+import pandas as pd
+import re
+from datetime import date, datetime, timedelta
+from supabase import create_client, Client
+from streamlit_gsheets import GSheetsConnection
+
+st.set_page_config(
+    page_title="英文練習 — 數據監控",
+    page_icon="📊",
+    layout="wide"
+)
+
+# ── 常數 ──────────────────────────────────────────────────────────────────────
+DASHBOARD_VERSION = "1.0"
+
+LOGS_COLS = {
+    "created_at": "時間", "name": "姓名", "group_id": "分組",
+    "question_id": "題目ID", "result": "結果",
+    "student_answer": "學生答案", "score": "分數", "task_name": "任務名稱"
+}
+ASSIGN_COLS = {
+    "created_at": "建立時間", "task_name": "任務名稱",
+    "target_group": "對象班級", "assigned_students": "指派學生",
+    "student_count": "指派人數", "content": "內容",
+    "description": "任務說明", "question_count": "題目數",
+    "question_ids": "題目ID清單", "start_date": "開始日期",
+    "end_date": "結束日期", "ref_students": "參考學生",
+    "status": "狀態", "task_type": "類型", "task_id": "任務編號",
+    "vocab_cfg": "單字設定"
+}
+
+# ── 工具函式 ──────────────────────────────────────────────────────────────────
+def get_now():
+    import pytz
+    return datetime.now(pytz.timezone("Asia/Taipei"))
+
+def is_admin(group_id):
+    return str(group_id).upper() in ["ADMIN", "TEACHER"]
+
+def _group_label(g):
+    return str(g)
+
+def _sort_task_names(names):
+    def _key(n):
+        return re.sub(r'^\[T\d+\]\s*', '', str(n)).strip().lower()
+    return sorted(names, key=_key)
+
+@st.cache_resource
+def get_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+def _to_cn(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
+    return df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
+
+# ── 資料載入（輕量版，只載入需要的）────────────────────────────────────────────
+@st.cache_data(ttl=30)
+def load_assignments():
+    try:
+        sb  = get_supabase()
+        res = sb.table("assignments").select("*").execute()
+        if res.data:
+            df = pd.DataFrame(res.data)
+            df = _to_cn(df, ASSIGN_COLS)
+            return df
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"載入任務失敗：{e}")
+        return pd.DataFrame()
+
+@st.cache_data(ttl=60)
+def load_logs():
+    try:
+        sb  = get_supabase()
+        all_logs = []
+        page = 0
+        while True:
+            res = sb.table("logs").select(
+                "created_at,name,group_id,question_id,result,student_answer,score,task_name"
+            ).order("created_at", desc=False).range(page*1000, (page+1)*1000-1).execute()
+            if not res.data:
+                break
+            all_logs.extend(res.data)
+            if len(res.data) < 1000:
+                break
+            page += 1
+        if all_logs:
+            df = pd.DataFrame(all_logs)
+            df = _to_cn(df, LOGS_COLS)
+            return df
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"載入 logs 失敗：{e}")
+        return pd.DataFrame()
+
+@st.cache_data(ttl=600)
+def load_students():
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        df   = conn.read(worksheet="students", ttl=600).fillna("").astype(str)
+        return df
+    except:
+        return pd.DataFrame()
+
+# ── 登入 ──────────────────────────────────────────────────────────────────────
+if 'dash_logged_in' not in st.session_state:
+    st.session_state['dash_logged_in'] = False
+
+if not st.session_state['dash_logged_in']:
+    st.title("📊 英文練習 — 數據監控")
+    col1, col2, col3 = st.columns([1,1,1])
+    with col2:
+        st.markdown("### 🔐 請登入")
+        pwd = st.text_input("密碼", type="password", key="dash_pwd")
+        if st.button("登入", use_container_width=True, type="primary"):
+            # 從 secrets 讀取管理員密碼
+            admin_pwd = st.secrets.get("ADMIN_PASSWORD", "admin123")
+            if pwd == admin_pwd:
+                st.session_state['dash_logged_in'] = True
+                st.rerun()
+            else:
+                st.error("密碼錯誤")
+    st.stop()
+
+# ── 主介面 ────────────────────────────────────────────────────────────────────
+st.title("📊 英文全能練習系統 — 數據監控儀表板")
+st.caption(f"V{DASHBOARD_VERSION}　獨立版，直連 Supabase")
+
+# 載入資料
+df_a = load_assignments()
+df_l = load_logs()
+df_s = load_students()
+
+# 頂部資料更新按鈕
+col_r1, col_r2, col_r3 = st.columns([4, 1, 1])
+col_r2.caption(f"logs: {len(df_l)} 筆　任務: {len(df_a)} 個")
+if col_r3.button("🔄 更新資料", use_container_width=True):
+    load_assignments.clear()
+    load_logs.clear()
+    st.rerun()
+
+st.divider()
+
+# ── Tab ───────────────────────────────────────────────────────────────────────
+tab_monitor, tab_report = st.tabs(["📊 數據監控", "📋 全能英文學習報告"])
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Tab1：數據監控
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_monitor:
+    st.subheader("📊 數據監控")
+    now_tw   = get_now()
+    today_t2 = now_tw.date()
+
+    # 時間範圍
+    st.markdown("**⏱ 時間範圍**")
+    _t2_periods = ["今日", "昨天", "前天", "三天", "七天", "30天"]
+    if "t2_period" not in st.session_state:
+        st.session_state["t2_period"] = "今日"
+    _t2_cols = st.columns(6)
+    for _i, _p in enumerate(_t2_periods):
+        _active = st.session_state["t2_period"] == _p
+        if _t2_cols[_i].button(_p, key=f"t2_btn_{_p}",
+                               type="primary" if _active else "secondary",
+                               use_container_width=True):
+            st.session_state["t2_period"] = _p
+            st.session_state["t2_do_query"] = False
+
+    # 自訂時間
+    with st.expander("📅 自訂時間範圍"):
+        _cc1, _cc2, _cc3 = st.columns([2, 2, 1])
+        t2_from_custom = _cc1.date_input("開始", value=today_t2, key="t2_custom_from_inp")
+        t2_to_custom   = _cc2.date_input("結束", value=today_t2, key="t2_custom_to_inp")
+        if _cc3.button("套用", use_container_width=True):
+            st.session_state["t2_custom_from"] = t2_from_custom
+            st.session_state["t2_custom_to"]   = t2_to_custom
+            st.session_state["t2_period"]       = "自訂"
+            st.session_state["t2_do_query"]     = False
+
+    period = st.session_state.get("t2_period", "今日")
+    _d_map = {
+        "今日": (today_t2, today_t2),
+        "昨天": (today_t2 - timedelta(days=1), today_t2 - timedelta(days=1)),
+        "前天": (today_t2 - timedelta(days=2), today_t2 - timedelta(days=2)),
+        "三天": (today_t2 - timedelta(days=2), today_t2),
+        "七天": (today_t2 - timedelta(days=6), today_t2),
+        "30天": (today_t2 - timedelta(days=29), today_t2),
+        "自訂": (st.session_state.get("t2_custom_from", today_t2),
+                st.session_state.get("t2_custom_to",   today_t2)),
+    }
+    date_from_t2, date_to_t2 = _d_map.get(period, (today_t2, today_t2))
+    date_from_str = date_from_t2.strftime("%Y-%m-%d")
+    date_to_str   = date_to_t2.strftime("%Y-%m-%d")
+    st.caption(f"📅 {period}：{date_from_str} ～ {date_to_str}")
+
+    # 班級篩選
+    all_groups_t2 = sorted(df_s[~df_s['分組'].isin(['ADMIN','TEACHER'])]['分組'].unique()) if not df_s.empty and '分組' in df_s.columns else []
+    grp_opts_t2   = ["（不限）"] + [_group_label(g) for g in all_groups_t2]
+    grp_map_t2    = {"（不限）": None, **{_group_label(g): g for g in all_groups_t2}}
+    sel_grp_t2    = st.selectbox("👥 班級篩選", grp_opts_t2, key="t2_grp")
+    grp_t2        = grp_map_t2.get(sel_grp_t2)
+
+    # 任務篩選
+    task_opts = ["（不限）"]
+    if not df_a.empty and "任務名稱" in df_a.columns:
+        task_opts = ["（不限）"] + _sort_task_names(df_a["任務名稱"].tolist())
+    sel_task_t2 = st.selectbox("📋 任務篩選", task_opts, key="t2_task")
+
+    # 查詢按鈕
+    _q_col1, _q_col2 = st.columns([3, 1])
+    _q_col1.write("")
+    _do_query = _q_col2.button("🔍 查詢", type="primary", use_container_width=True)
+
+    if _do_query:
+        st.session_state["t2_do_query"] = True
+        _t2_cache = {
+            "date_from": date_from_str,
+            "date_to":   date_to_str,
+            "grp":       grp_t2,
+            "task":      sel_task_t2
+        }
+        # 篩選
+        df_lf = df_l.copy() if not df_l.empty else pd.DataFrame()
+        if not df_lf.empty and "時間" in df_lf.columns:
+            df_lf = df_lf[
+                (df_lf["時間"].str[:10] >= date_from_str) &
+                (df_lf["時間"].str[:10] <= date_to_str)
+            ]
+        if grp_t2 and not df_lf.empty and "分組" in df_lf.columns:
+            df_lf = df_lf[df_lf["分組"] == grp_t2]
+        if sel_task_t2 != "（不限）" and not df_lf.empty and "任務名稱" in df_lf.columns:
+            # 找任務編號
+            _tid = ""
+            if not df_a.empty and "任務名稱" in df_a.columns:
+                _ar = df_a[df_a["任務名稱"] == sel_task_t2]
+                if not _ar.empty:
+                    _tid = str(_ar.iloc[0].get("任務編號", ""))
+            if _tid:
+                df_lf = df_lf[df_lf["任務名稱"].fillna("") == _tid]
+        st.session_state["_t2_result"] = df_lf
+        st.session_state["_t2_cache"]  = _t2_cache
+
+    # 顯示結果
+    if st.session_state.get("t2_do_query") and "_t2_result" in st.session_state:
+        df_lf = st.session_state["_t2_result"]
+        df_lf_ans = df_lf[~df_lf["結果"].str.contains("📖", na=False)] if not df_lf.empty and "結果" in df_lf.columns else pd.DataFrame()
+
+        st.divider()
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        total_ans   = len(df_lf_ans)
+        total_ok    = len(df_lf_ans[df_lf_ans["結果"] == "✅"]) if not df_lf_ans.empty else 0
+        total_err   = len(df_lf_ans[df_lf_ans["結果"] == "❌"]) if not df_lf_ans.empty else 0
+        acc         = f"{int(total_ok/total_ans*100)}%" if total_ans else "—"
+        mc1.metric("📝 總答題", total_ans)
+        mc2.metric("✅ 答對",   total_ok)
+        mc3.metric("❌ 答錯",   total_err)
+        mc4.metric("🎯 正確率", acc)
+
+        if not df_lf_ans.empty and "姓名" in df_lf_ans.columns:
+            st.markdown("**👥 各學生統計**")
+            stu_stats = []
+            for stu, grp_df in df_lf_ans.groupby("姓名"):
+                ok  = len(grp_df[grp_df["結果"] == "✅"])
+                err = len(grp_df[grp_df["結果"] == "❌"])
+                tot = len(grp_df)
+                stu_stats.append({
+                    "姓名": stu,
+                    "答題數": tot,
+                    "答對": ok,
+                    "答錯": err,
+                    "正確率": f"{int(ok/tot*100)}%" if tot else "—"
+                })
+            st.dataframe(pd.DataFrame(stu_stats), use_container_width=True, hide_index=True)
+
+        if not df_lf_ans.empty:
+            st.markdown("**📋 詳細記錄**")
+            show_cols = [c for c in ["時間","姓名","分組","題目ID","結果","學生答案","任務名稱"] if c in df_lf_ans.columns]
+            st.dataframe(df_lf_ans[show_cols].tail(200), use_container_width=True, hide_index=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Tab2：全能英文學習報告
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_report:
+    st.subheader("📋 全能英文學習報告")
+    st.caption("依任務分開列出各學生的答題狀況")
+
+    if df_a.empty:
+        st.info("尚無任務資料")
+    else:
+        # 任務選擇
+        task_names_rpt = ["（全部）"] + _sort_task_names(df_a["任務名稱"].tolist() if "任務名稱" in df_a.columns else [])
+        sel_tasks_rpt  = st.multiselect("選擇任務（空白=全部）", task_names_rpt[1:], key="rpt_tasks")
+        sel_grp_rpt    = st.selectbox("班級", ["（全部）"] + [_group_label(g) for g in all_groups_t2], key="rpt_grp")
+
+        if st.button("📋 產生報告", type="primary"):
+            rpt_lines = []
+            flt_a = df_a.copy()
+            if sel_tasks_rpt:
+                flt_a = flt_a[flt_a["任務名稱"].isin(sel_tasks_rpt)]
+            grp_rpt = sel_grp_rpt if sel_grp_rpt != "（全部）" else None
+
+            if not df_s.empty and "姓名" in df_s.columns:
+                students_rpt = sorted(df_s[
+                    df_s["分組"] == grp_rpt if grp_rpt else ~df_s["分組"].isin(["ADMIN","TEACHER"])
+                ]["姓名"].tolist())
+            else:
+                students_rpt = []
+
+            for stu in students_rpt:
+                stu_l = df_l[df_l["姓名"] == stu] if not df_l.empty and "姓名" in df_l.columns else pd.DataFrame()
+                if stu_l.empty:
+                    continue
+                stu_lines = [f"【{stu}】"]
+                for _, arow in flt_a.iterrows():
+                    tname  = str(arow.get("任務名稱",""))
+                    tid    = str(arow.get("任務編號",""))
+                    qids_s = str(arow.get("題目ID清單",""))
+                    q_ids  = set([q.strip() for q in qids_s.split(",") if q.strip()])
+                    t_logs = stu_l[stu_l["任務名稱"].fillna("") == tid] if tid else pd.DataFrame()
+                    if t_logs.empty:
+                        continue
+                    t_ans  = t_logs[~t_logs["結果"].str.contains("📖", na=False)]
+                    done   = len(set(t_ans["題目ID"].tolist()) & q_ids) if not t_ans.empty and "題目ID" in t_ans.columns else 0
+                    wrong  = set(t_ans[t_ans["結果"]=="❌"]["題目ID"].tolist()) if not t_ans.empty else set()
+                    ok     = set(t_ans[t_ans["結果"]=="✅"]["題目ID"].tolist()) if not t_ans.empty else set()
+                    need   = wrong - ok
+                    short  = re.sub(r'^\[T\d+\]\s*', '', tname)
+                    stu_lines.append(f"  {short}：完成{done}/{len(q_ids)}　需加強{len(need)}題")
+                if len(stu_lines) > 1:
+                    rpt_lines.extend(stu_lines)
+                    rpt_lines.append("")
+
+            if rpt_lines:
+                st.text_area("報告內容（可複製）", "\n".join(rpt_lines), height=400)
+            else:
+                st.info("無符合條件的資料")
+
+st.divider()
+st.caption(f"英文全能練習系統 數據監控儀表板 V{DASHBOARD_VERSION}　© 2026")
