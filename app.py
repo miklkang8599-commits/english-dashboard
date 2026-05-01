@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.0                                      ║
+# ║  dashboard.py  V1.3                                      ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.2"
+DASHBOARD_VERSION = "1.3"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -284,14 +284,19 @@ with tab_monitor:
                         )
                     else:
                         disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
+                # 題目ID 去掉 [Txxxxxxx] 前綴
+                if "題目ID" in disp.columns:
+                    disp["題目ID"] = disp["題目ID"].apply(
+                        lambda x: re.sub(r'^\[T\d+\]\s*', '', str(x)).strip()
+                    )
                 # 欄位寬度設定
                 col_cfg = {}
-                if "時間"   in disp.columns: col_cfg["時間"]   = st.column_config.TextColumn("時間",   width=120)
-                if "分組"   in disp.columns: col_cfg["分組"]   = st.column_config.TextColumn("班級",   width=60)
-                if "題目ID" in disp.columns: col_cfg["題目ID"] = st.column_config.TextColumn("題目",   width=70)
-                if "結果"   in disp.columns: col_cfg["結果"]   = st.column_config.TextColumn("結果",   width=50)
-                if "學生答案" in disp.columns: col_cfg["學生答案"] = st.column_config.TextColumn("答案", width=80)
-                if "任務名稱" in disp.columns: col_cfg["任務名稱"] = st.column_config.TextColumn("任務名稱", width=320)
+                if "時間"     in disp.columns: col_cfg["時間"]     = st.column_config.TextColumn("時間",   width=80)
+                if "分組"     in disp.columns: col_cfg["分組"]     = st.column_config.TextColumn("班級",   width=40)
+                if "題目ID"   in disp.columns: col_cfg["題目ID"]   = st.column_config.TextColumn("題目",   width=120)
+                if "結果"     in disp.columns: col_cfg["結果"]     = st.column_config.TextColumn("結果",   width=40)
+                if "學生答案" in disp.columns: col_cfg["學生答案"] = st.column_config.TextColumn("答案",   width=120)
+                if "任務名稱" in disp.columns: col_cfg["任務名稱"] = st.column_config.TextColumn("任務名稱", width=None)
                 st.dataframe(disp, use_container_width=True, hide_index=True, column_config=col_cfg)
     elif df_lf_ans.empty:
         st.info("此時間範圍內無答題資料")
