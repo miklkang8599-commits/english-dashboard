@@ -224,12 +224,30 @@ with tab_monitor:
     mc3.metric("❌ 答錯",   total_err)
     mc4.metric("🎯 正確率", acc)
 
+    # ── 工具：時間加星期 ──────────────────────────────────────────────
+    _WEEKDAY_CN = ["一","二","三","四","五","六","日"]
+    def _fmt_time_with_weekday(t_str):
+        """把 '2026-04-16 15:09' 轉成 '04-16(三) 15:09'"""
+        try:
+            dt = pd.to_datetime(str(t_str)[:16])
+            wd = _WEEKDAY_CN[dt.weekday()]
+            return dt.strftime(f"%m-%d({wd}) %H:%M")
+        except:
+            return str(t_str)[:16]
+
+    def _clean_task_name(name):
+        """去掉任務名稱結尾的『　AA　2026-04-16 ～ 2026-09-30』部分"""
+        s = str(name)
+        # 以全形空白或半形空白+日期格式為切割點
+        s = re.split(r'[\u3000\s]{1,}[A-Z]{2}[\u3000\s]{1,}\d{4}-\d{2}-\d{2}', s)[0]
+        return s.strip()
+
     # 學生清單（縮排，展開後顯示詳細答題）
     if not df_lf_ans.empty and "姓名" in df_lf_ans.columns:
         st.markdown("**👥 學生答題狀況**")
         student_names = sorted(df_lf_ans["姓名"].unique().tolist())
         for stu in student_names:
-            stu_df = df_lf_ans[df_lf_ans["姓名"] == stu]
+            stu_df = df_lf_ans[df_lf_ans["姓名"] == stu].copy()
             ok  = len(stu_df[stu_df["結果"] == "✅"])
             err = len(stu_df[stu_df["結果"] == "❌"])
             tot = len(stu_df)
@@ -237,7 +255,22 @@ with tab_monitor:
             label = f"{stu}　📝 {tot} 題　✅ {ok}　❌ {err}　🎯 {acc_stu}"
             with st.expander(label, expanded=False):
                 show_cols = [c for c in ["時間","分組","題目ID","結果","學生答案","任務名稱"] if c in stu_df.columns]
-                st.dataframe(stu_df[show_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
+                disp = stu_df[show_cols].reset_index(drop=True).copy()
+                # 時間加星期
+                if "時間" in disp.columns:
+                    disp["時間"] = disp["時間"].apply(_fmt_time_with_weekday)
+                # 任務名稱去序號後綴
+                if "任務名稱" in disp.columns:
+                    disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
+                # 欄位寬度設定
+                col_cfg = {}
+                if "時間"   in disp.columns: col_cfg["時間"]   = st.column_config.TextColumn("時間",   width=120)
+                if "分組"   in disp.columns: col_cfg["分組"]   = st.column_config.TextColumn("班級",   width=60)
+                if "題目ID" in disp.columns: col_cfg["題目ID"] = st.column_config.TextColumn("題目",   width=70)
+                if "結果"   in disp.columns: col_cfg["結果"]   = st.column_config.TextColumn("結果",   width=50)
+                if "學生答案" in disp.columns: col_cfg["學生答案"] = st.column_config.TextColumn("答案", width=80)
+                if "任務名稱" in disp.columns: col_cfg["任務名稱"] = st.column_config.TextColumn("任務名稱", width=320)
+                st.dataframe(disp, use_container_width=True, hide_index=True, column_config=col_cfg)
     elif df_lf_ans.empty:
         st.info("此時間範圍內無答題資料")
 
