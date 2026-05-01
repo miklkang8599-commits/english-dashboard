@@ -163,7 +163,7 @@ with tab_monitor:
     st.markdown("**⏱ 時間範圍**")
     _t2_periods = ["今日", "昨天", "前天", "三天", "七天", "30天"]
     if "t2_period" not in st.session_state:
-        st.session_state["t2_period"] = "今日"
+        st.session_state["t2_period"] = "三天"
     _t2_cols = st.columns(6)
     for _i, _p in enumerate(_t2_periods):
         _active = st.session_state["t2_period"] == _p
@@ -200,89 +200,43 @@ with tab_monitor:
     date_to_str   = date_to_t2.strftime("%Y-%m-%d")
     st.caption(f"📅 {period}：{date_from_str} ～ {date_to_str}")
 
-    # 班級篩選
-    all_groups_t2 = sorted(df_s[~df_s['分組'].isin(['ADMIN','TEACHER'])]['分組'].unique()) if not df_s.empty and '分組' in df_s.columns else []
-    grp_opts_t2   = ["（不限）"] + [_group_label(g) for g in all_groups_t2]
-    grp_map_t2    = {"（不限）": None, **{_group_label(g): g for g in all_groups_t2}}
-    sel_grp_t2    = st.selectbox("👥 班級篩選", grp_opts_t2, key="t2_grp")
-    grp_t2        = grp_map_t2.get(sel_grp_t2)
+    # 依時間篩選 logs
+    df_lf = df_l.copy() if not df_l.empty else pd.DataFrame()
+    if not df_lf.empty and "時間" in df_lf.columns:
+        df_lf = df_lf[
+            (df_lf["時間"].str[:10] >= date_from_str) &
+            (df_lf["時間"].str[:10] <= date_to_str)
+        ]
+    df_lf_ans = df_lf[~df_lf["結果"].str.contains("📖", na=False)] if not df_lf.empty and "結果" in df_lf.columns else pd.DataFrame()
 
-    # 任務篩選
-    task_opts = ["（不限）"]
-    if not df_a.empty and "任務名稱" in df_a.columns:
-        task_opts = ["（不限）"] + _sort_task_names(df_a["任務名稱"].tolist())
-    sel_task_t2 = st.selectbox("📋 任務篩選", task_opts, key="t2_task")
+    # 整體統計
+    st.divider()
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    total_ans = len(df_lf_ans)
+    total_ok  = len(df_lf_ans[df_lf_ans["結果"] == "✅"]) if not df_lf_ans.empty else 0
+    total_err = len(df_lf_ans[df_lf_ans["結果"] == "❌"]) if not df_lf_ans.empty else 0
+    acc       = f"{int(total_ok/total_ans*100)}%" if total_ans else "—"
+    mc1.metric("📝 總答題", total_ans)
+    mc2.metric("✅ 答對",   total_ok)
+    mc3.metric("❌ 答錯",   total_err)
+    mc4.metric("🎯 正確率", acc)
 
-    # 查詢按鈕
-    _q_col1, _q_col2 = st.columns([3, 1])
-    _q_col1.write("")
-    _do_query = _q_col2.button("🔍 查詢", type="primary", use_container_width=True)
-
-    if _do_query:
-        st.session_state["t2_do_query"] = True
-        _t2_cache = {
-            "date_from": date_from_str,
-            "date_to":   date_to_str,
-            "grp":       grp_t2,
-            "task":      sel_task_t2
-        }
-        # 篩選
-        df_lf = df_l.copy() if not df_l.empty else pd.DataFrame()
-        if not df_lf.empty and "時間" in df_lf.columns:
-            df_lf = df_lf[
-                (df_lf["時間"].str[:10] >= date_from_str) &
-                (df_lf["時間"].str[:10] <= date_to_str)
-            ]
-        if grp_t2 and not df_lf.empty and "分組" in df_lf.columns:
-            df_lf = df_lf[df_lf["分組"] == grp_t2]
-        if sel_task_t2 != "（不限）" and not df_lf.empty and "任務名稱" in df_lf.columns:
-            # 找任務編號
-            _tid = ""
-            if not df_a.empty and "任務名稱" in df_a.columns:
-                _ar = df_a[df_a["任務名稱"] == sel_task_t2]
-                if not _ar.empty:
-                    _tid = str(_ar.iloc[0].get("任務編號", ""))
-            if _tid:
-                df_lf = df_lf[df_lf["任務名稱"].fillna("") == _tid]
-        st.session_state["_t2_result"] = df_lf
-        st.session_state["_t2_cache"]  = _t2_cache
-
-    # 顯示結果
-    if st.session_state.get("t2_do_query") and "_t2_result" in st.session_state:
-        df_lf = st.session_state["_t2_result"]
-        df_lf_ans = df_lf[~df_lf["結果"].str.contains("📖", na=False)] if not df_lf.empty and "結果" in df_lf.columns else pd.DataFrame()
-
-        st.divider()
-        mc1, mc2, mc3, mc4 = st.columns(4)
-        total_ans   = len(df_lf_ans)
-        total_ok    = len(df_lf_ans[df_lf_ans["結果"] == "✅"]) if not df_lf_ans.empty else 0
-        total_err   = len(df_lf_ans[df_lf_ans["結果"] == "❌"]) if not df_lf_ans.empty else 0
-        acc         = f"{int(total_ok/total_ans*100)}%" if total_ans else "—"
-        mc1.metric("📝 總答題", total_ans)
-        mc2.metric("✅ 答對",   total_ok)
-        mc3.metric("❌ 答錯",   total_err)
-        mc4.metric("🎯 正確率", acc)
-
-        if not df_lf_ans.empty and "姓名" in df_lf_ans.columns:
-            st.markdown("**👥 各學生統計**")
-            stu_stats = []
-            for stu, grp_df in df_lf_ans.groupby("姓名"):
-                ok  = len(grp_df[grp_df["結果"] == "✅"])
-                err = len(grp_df[grp_df["結果"] == "❌"])
-                tot = len(grp_df)
-                stu_stats.append({
-                    "姓名": stu,
-                    "答題數": tot,
-                    "答對": ok,
-                    "答錯": err,
-                    "正確率": f"{int(ok/tot*100)}%" if tot else "—"
-                })
-            st.dataframe(pd.DataFrame(stu_stats), use_container_width=True, hide_index=True)
-
-        if not df_lf_ans.empty:
-            st.markdown("**📋 詳細記錄**")
-            show_cols = [c for c in ["時間","姓名","分組","題目ID","結果","學生答案","任務名稱"] if c in df_lf_ans.columns]
-            st.dataframe(df_lf_ans[show_cols].tail(200), use_container_width=True, hide_index=True)
+    # 學生清單（縮排，展開後顯示詳細答題）
+    if not df_lf_ans.empty and "姓名" in df_lf_ans.columns:
+        st.markdown("**👥 學生答題狀況**")
+        student_names = sorted(df_lf_ans["姓名"].unique().tolist())
+        for stu in student_names:
+            stu_df = df_lf_ans[df_lf_ans["姓名"] == stu]
+            ok  = len(stu_df[stu_df["結果"] == "✅"])
+            err = len(stu_df[stu_df["結果"] == "❌"])
+            tot = len(stu_df)
+            acc_stu = f"{int(ok/tot*100)}%" if tot else "—"
+            label = f"{stu}　📝 {tot} 題　✅ {ok}　❌ {err}　🎯 {acc_stu}"
+            with st.expander(label, expanded=False):
+                show_cols = [c for c in ["時間","分組","題目ID","結果","學生答案","任務名稱"] if c in stu_df.columns]
+                st.dataframe(stu_df[show_cols].reset_index(drop=True), use_container_width=True, hide_index=True)
+    elif df_lf_ans.empty:
+        st.info("此時間範圍內無答題資料")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab2：全能英文學習報告
