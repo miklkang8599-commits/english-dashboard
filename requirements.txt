@@ -1,7 +1,6 @@
-st-gsheets-connection
+streamlit
 pandas
-openai
 supabase
-reportlab
-google-api-python-client
-gspread
+streamlit-gsheets-connection
+pytz
+ 
