@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.17                                     ║
+# ║  dashboard.py  V1.18                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.17"
+DASHBOARD_VERSION = "1.18"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -401,7 +401,7 @@ with tab_monitor:
                 if "任務名稱" in disp.columns: col_cfg["任務名稱"] = st.column_config.TextColumn("任務名稱", width=50)
                 # 調整欄位順序：時間、班級、題目、結果、學生答案、正確答案、任務名稱
                 ordered_cols = [c for c in ["時間","分組","題目ID","結果","學生答案","正確答案","任務名稱"] if c in disp.columns]
-                st.dataframe(disp[ordered_cols], use_container_width=True, hide_index=True, column_config=col_cfg, wrap=True)
+                st.dataframe(disp[ordered_cols], use_container_width=True, hide_index=True, column_config=col_cfg, height=40*35+38)
     elif df_lf_ans.empty:
         st.info("此時間範圍內無答題資料")
 
