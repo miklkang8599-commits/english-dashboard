@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.11                                     ║
+# ║  dashboard.py  V1.12                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.11"
+DASHBOARD_VERSION = "1.12"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -374,24 +374,6 @@ with tab_monitor:
                 if "題目ID" in disp.columns:
                     qids = tuple(disp["題目ID"].astype(str).str.strip().unique())
                     q_lookup = build_question_lookup(qids)
-                    # DEBUG：若查不到，顯示診斷資訊
-                    if not q_lookup:
-                        with st.expander("🔍 Debug：題目查詢失敗診斷", expanded=True):
-                            sample_qid = qids[0] if qids else ""
-                            st.write(f"**question_id 範例：** `{sample_qid}`")
-                            parsed = _parse_qid(sample_qid)
-                            st.write(f"**解析結果：** {parsed}")
-                            if parsed:
-                                qtype = parsed.get("題型","")
-                                cfg = _QTYPE_SHEETS.get(qtype, {})
-                                st.write(f"**工作表：** {cfg.get('sheet','找不到')}")
-                                df_dbg = load_question_sheet(cfg.get("sheet",""))
-                                if not df_dbg.empty:
-                                    st.write(f"**工作表欄位：** {list(df_dbg.columns)}")
-                                    st.write(f"**前3筆資料：**")
-                                    st.dataframe(df_dbg.head(3))
-                                else:
-                                    st.write("**工作表載入失敗或空白**")
                     disp["題目ID"] = disp["題目ID"].apply(
                         lambda x: q_lookup.get(str(x).strip(), {}).get("題目", re.sub(r'^\[T\d+\]\s*', '', str(x)).strip())
                     )
