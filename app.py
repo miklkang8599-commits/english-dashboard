@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.6                                      ║
+# ║  dashboard.py  V1.7                                      ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.6"
+DASHBOARD_VERSION = "1.7"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -296,7 +296,7 @@ with tab_monitor:
                 if "題目ID"   in disp.columns: col_cfg["題目ID"]   = st.column_config.TextColumn("題目",   width=120)
                 if "結果"     in disp.columns: col_cfg["結果"]     = st.column_config.TextColumn("結果",   width=30)
                 if "學生答案" in disp.columns: col_cfg["學生答案"] = st.column_config.TextColumn("答案",   width=120)
-                if "任務名稱" in disp.columns: col_cfg["任務名稱"] = st.column_config.TextColumn("任務名稱", width=None)
+                if "任務名稱" in disp.columns: col_cfg["任務名稱"] = st.column_config.TextColumn("題目", width=None)
                 st.dataframe(disp, use_container_width=True, hide_index=True, column_config=col_cfg, height=40*35+38)
     elif df_lf_ans.empty:
         st.info("此時間範圍內無答題資料")
