@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.21                                     ║
+# ║  dashboard.py  V1.22                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.21"
+DASHBOARD_VERSION = "1.22"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -307,6 +307,15 @@ with tab_monitor:
             (df_lf["時間"].str[:10] <= date_to_str)
         ]
     df_lf_ans = df_lf[~df_lf["結果"].str.contains("📖", na=False)] if not df_lf.empty and "結果" in df_lf.columns else pd.DataFrame()
+
+    # DEBUG 臨時：看學生答案原始值
+    if not df_lf_ans.empty:
+        with st.expander("🔍 Debug：學生答案原始值", expanded=True):
+            st.write("欄位清單：", list(df_lf_ans.columns))
+            if "學生答案" in df_lf_ans.columns:
+                st.write("學生答案前5筆：", df_lf_ans["學生答案"].head(5).tolist())
+            else:
+                st.write("❌ 找不到『學生答案』欄位")
 
     # 整體統計
     st.divider()
