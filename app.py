@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.24                                     ║
+# ║  dashboard.py  V1.25                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.24"
+DASHBOARD_VERSION = "1.25"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -152,6 +152,15 @@ def _parse_qid(qid: str):
                     "課編號": course, "句編號": sent, "題型": qtype}
     return None
 
+def _norm(x):
+    s = str(x).strip()
+    try: return str(int(float(s)))
+    except: return s
+
+def _try_int(s):
+    try: int(float(s)); return True
+    except: return False
+
 @st.cache_data(ttl=600)
 def build_question_lookup(qids: tuple) -> dict:
     """給定一組 question_id，回傳 {qid: {'題目': ..., '答案': ...}} 字典"""
@@ -190,10 +199,6 @@ def build_question_lookup(qids: tuple) -> dict:
             for col in key_cols:
                 if col in p and col in df.columns:
                     val = str(p[col]).strip()
-                    def _norm(x):
-                        s = str(x).strip()
-                        try: return str(int(float(s)))
-                        except: return s
                     mask &= df[col].apply(_norm) == _norm(val)
             rows = df[mask]
             if not rows.empty:
@@ -243,10 +248,6 @@ def build_question_lookup(qids: tuple) -> dict:
                     result[qid] = {"題目": content if content else answer, "答案": answer}
                     break
     return result
-
-def _try_int(s):
-    try: int(float(s)); return True
-    except: return False
 
 # ── 登入 ──────────────────────────────────────────────────────────────────────
 if 'dash_logged_in' not in st.session_state:
