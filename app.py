@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.23                                     ║
+# ║  dashboard.py  V1.24                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.23"
+DASHBOARD_VERSION = "1.24"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -157,16 +157,22 @@ def build_question_lookup(qids: tuple) -> dict:
     """給定一組 question_id，回傳 {qid: {'題目': ..., '答案': ...}} 字典"""
     by_type = {}
     parsed  = {}
+    unmatched = []
     for qid in qids:
         p = _parse_qid(qid)
         if p:
             parsed[qid] = p
             by_type.setdefault(p["題型"], []).append(qid)
+        else:
+            unmatched.append(qid)
 
     result = {}
+
+    # 已知題型處理
     for qtype, ids in by_type.items():
         cfg = _QTYPE_SHEETS.get(qtype)
         if not cfg:
+            unmatched.extend(ids)
             continue
         df = load_question_sheet(cfg["sheet"])
         if df.empty:
@@ -174,9 +180,8 @@ def build_question_lookup(qids: tuple) -> dict:
         content_col = cfg["content"]
         answer_col  = cfg.get("answer", "")
         key_cols    = cfg["key"]
-        # content_col 可能為空（聽力類），只檢查非空的
-        check_cols = [c for c in key_cols + ([content_col] if content_col else []) if c]
-        missing = [c for c in check_cols if c not in df.columns]
+        check_cols  = [c for c in key_cols + ([content_col] if content_col else []) if c]
+        missing     = [c for c in check_cols if c not in df.columns]
         if missing:
             continue
         for qid in ids:
@@ -185,25 +190,63 @@ def build_question_lookup(qids: tuple) -> dict:
             for col in key_cols:
                 if col in p and col in df.columns:
                     val = str(p[col]).strip()
-                    # 處理 Google Sheet 數字欄位可能是 '1.0' 的情況
                     def _norm(x):
                         s = str(x).strip()
-                        try:
-                            return str(int(float(s)))
-                        except:
-                            return s
+                        try: return str(int(float(s)))
+                        except: return s
                     mask &= df[col].apply(_norm) == _norm(val)
             rows = df[mask]
             if not rows.empty:
                 row = rows.iloc[0]
                 content = str(row[content_col]) if content_col and content_col in df.columns else ""
                 answer  = str(row[answer_col])  if answer_col  and answer_col  in df.columns else ""
-                # 沒有題目欄的題型（聽力類），用答案當顯示內容
-                result[qid] = {
-                    "題目": content if content else answer,
-                    "答案": answer
-                }
+                result[qid] = {"題目": content if content else answer, "答案": answer}
+
+    # 未比對到的：多重判斷嘗試單選工作表
+    if unmatched:
+        df_mcq = load_question_sheet("單選")
+        df_read = load_question_sheet("閱讀單句")
+        for qid in unmatched:
+            parts = str(qid).split("_")
+            # 判斷是否為單選：_type==mcq、欄位有單選答案/選項A-D、名稱含單選
+            is_mcq = (
+                "mcq" in parts or
+                "單選" in str(qid) or
+                (not df_mcq.empty and "單選答案" in df_mcq.columns) or
+                (not df_mcq.empty and "選項A" in df_mcq.columns)
+            )
+            # 嘗試從 parts 取出數字欄位（版本_年度_冊_課_句）
+            nums = [p for p in parts if p.isdigit() or _try_int(p)]
+            version = parts[0] if parts else ""
+            year    = nums[0] if len(nums) > 0 else ""
+            vol     = nums[1] if len(nums) > 1 else ""
+            course  = nums[2] if len(nums) > 2 else ""
+            sent    = nums[3] if len(nums) > 3 else ""
+
+            for df_try, content_col, answer_col in [
+                (df_mcq,  "單選題目", "單選答案"),
+                (df_read, "題目",     "答案"),
+            ]:
+                if df_try.empty:
+                    continue
+                key_cols = ["版本","年度","冊編號","課編號","句編號"]
+                vals     = {"版本": version, "年度": year, "冊編號": vol, "課編號": course, "句編號": sent}
+                mask = pd.Series([True] * len(df_try), index=df_try.index)
+                for col in key_cols:
+                    if col in df_try.columns and vals.get(col):
+                        mask &= df_try[col].apply(_norm) == _norm(vals[col])
+                rows = df_try[mask]
+                if not rows.empty:
+                    row = rows.iloc[0]
+                    content = str(row[content_col]) if content_col in df_try.columns else ""
+                    answer  = str(row[answer_col])  if answer_col  in df_try.columns else ""
+                    result[qid] = {"題目": content if content else answer, "答案": answer}
+                    break
     return result
+
+def _try_int(s):
+    try: int(float(s)); return True
+    except: return False
 
 # ── 登入 ──────────────────────────────────────────────────────────────────────
 if 'dash_logged_in' not in st.session_state:
