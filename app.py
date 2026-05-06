@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.30                                     ║
+# ║  dashboard.py  V1.31                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.30"
+DASHBOARD_VERSION = "1.31"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -459,7 +459,7 @@ with tab_monitor:
                     )
                 # 欄位寬度設定
                 col_cfg = {}
-                if "時間"     in disp.columns: col_cfg["時間"]     = st.column_config.TextColumn("時間",     width=60)
+                if "時間"     in disp.columns: col_cfg["時間"]     = st.column_config.TextColumn("時間",     width=70)
                 if "分組"     in disp.columns: col_cfg["分組"]     = st.column_config.TextColumn("班級",     width=30)
                 if "題目ID"   in disp.columns: col_cfg["題目ID"]   = st.column_config.TextColumn("題目",     width=None, help=None)
                 if "結果"     in disp.columns: col_cfg["結果"]     = st.column_config.TextColumn("結果",     width=30)
