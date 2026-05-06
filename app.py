@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.29                                     ║
+# ║  dashboard.py  V1.30                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.29"
+DASHBOARD_VERSION = "1.30"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -415,11 +415,38 @@ with tab_monitor:
                     disp["時間"] = disp["時間"].apply(_fmt_time_with_weekday)
                 # 任務名稱：用任務編號對應 assignments 完整名稱，再截掉全形空格後綴
                 if "任務名稱" in disp.columns:
-                    with st.expander("🔍 Debug 題目ID清單格式", expanded=True):
-                        if not df_a.empty and "題目ID清單" in df_a.columns:
-                            st.write("題目ID清單前2筆：", df_a["題目ID清單"].head(2).tolist())
-                        st.write("disp 題目ID前3筆：", disp["題目ID"].head(3).tolist() if "題目ID" in disp.columns else "無題目ID欄")
-                    disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
+                    # 從 assignments 題目ID清單反查任務名稱
+                    if not df_a.empty and "題目ID清單" in df_a.columns and "任務名稱" in df_a.columns:
+                        # 建立 qid → 任務名稱 對應表
+                        qid_to_task = {}
+                        for _, row in df_a.iterrows():
+                            task_name = _clean_task_name(str(row.get("任務名稱","")))
+                            qids_str  = str(row.get("題目ID清單",""))
+                            # 清單格式可能是逗號分隔字串或 list
+                            if qids_str.startswith("["):
+                                import ast
+                                try: items = ast.literal_eval(qids_str)
+                                except: items = []
+                            else:
+                                items = [q.strip() for q in qids_str.split(",") if q.strip()]
+                            for q in items:
+                                # 去掉前綴 R_ 或其他前綴
+                                clean_q = re.sub(r'^[A-Za-z]_', '', q.strip())
+                                qid_to_task[q.strip()]   = task_name
+                                qid_to_task[clean_q]     = task_name
+                        # 套用到每一列
+                        def _find_task(raw_qid):
+                            q = str(raw_qid).strip()
+                            if q in qid_to_task:
+                                return qid_to_task[q]
+                            # 嘗試去掉前綴比對
+                            q2 = re.sub(r'^[A-Za-z]_', '', q)
+                            return qid_to_task.get(q2, "")
+                        # disp["題目ID"] 此時已被替換成題目內容，需用原始 stu_df
+                        orig_qids = stu_df[show_cols].sort_values("時間", ascending=False)["題目ID"].fillna("").astype(str).reset_index(drop=True) if "時間" in stu_df.columns else stu_df[show_cols]["題目ID"].fillna("").astype(str).reset_index(drop=True)
+                        disp["任務名稱"] = orig_qids.apply(_find_task)
+                    else:
+                        disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
                 # 題目ID → 題目內容，並新增正確答案欄
                 if "題目ID" in disp.columns:
                     qids = tuple(disp["題目ID"].astype(str).str.strip().unique())
