@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.28                                     ║
+# ║  dashboard.py  V1.29                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.28"
+DASHBOARD_VERSION = "1.29"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -415,10 +415,11 @@ with tab_monitor:
                     disp["時間"] = disp["時間"].apply(_fmt_time_with_weekday)
                 # 任務名稱：用任務編號對應 assignments 完整名稱，再截掉全形空格後綴
                 if "任務名稱" in disp.columns:
-                    if not df_a.empty and "任務名稱" in df_a.columns:
-                        disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
-                    else:
-                        disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
+                    with st.expander("🔍 Debug 題目ID清單格式", expanded=True):
+                        if not df_a.empty and "題目ID清單" in df_a.columns:
+                            st.write("題目ID清單前2筆：", df_a["題目ID清單"].head(2).tolist())
+                        st.write("disp 題目ID前3筆：", disp["題目ID"].head(3).tolist() if "題目ID" in disp.columns else "無題目ID欄")
+                    disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
                 # 題目ID → 題目內容，並新增正確答案欄
                 if "題目ID" in disp.columns:
                     qids = tuple(disp["題目ID"].astype(str).str.strip().unique())
