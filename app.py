@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.27                                     ║
+# ║  dashboard.py  V1.28                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.27"
+DASHBOARD_VERSION = "1.28"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -415,23 +415,8 @@ with tab_monitor:
                     disp["時間"] = disp["時間"].apply(_fmt_time_with_weekday)
                 # 任務名稱：用任務編號對應 assignments 完整名稱，再截掉全形空格後綴
                 if "任務名稱" in disp.columns:
-                    with st.expander("🔍 Debug 任務名稱", expanded=True):
-                        st.write("logs 任務名稱前3筆：", disp["任務名稱"].head(3).tolist())
-                        if not df_a.empty:
-                            st.write("assignments 欄位：", list(df_a.columns))
-                            if "任務編號" in df_a.columns:
-                                st.write("任務編號前3筆：", df_a["任務編號"].head(3).tolist())
-                            if "任務名稱" in df_a.columns:
-                                st.write("任務名稱前3筆：", df_a["任務名稱"].head(3).tolist())
-                    if not df_a.empty and "任務編號" in df_a.columns and "任務名稱" in df_a.columns:
-                        tid_to_name = {
-                            str(r["任務編號"]): _clean_task_name(r["任務名稱"])
-                            for _, r in df_a.iterrows()
-                            if str(r.get("任務編號","")).strip()
-                        }
-                        disp["任務名稱"] = disp["任務名稱"].apply(
-                            lambda x: tid_to_name.get(str(x).strip(), _clean_task_name(x))
-                        )
+                    if not df_a.empty and "任務名稱" in df_a.columns:
+                        disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
                     else:
                         disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
                 # 題目ID → 題目內容，並新增正確答案欄
