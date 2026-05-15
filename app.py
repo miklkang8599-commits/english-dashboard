@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.33                                     ║
+# ║  dashboard.py  V1.34                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.33"
+DASHBOARD_VERSION = "1.34"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -104,7 +104,7 @@ def load_logs():
 def load_supabase_students():
     try:
         sb  = get_supabase()
-        res = sb.table("students").select("name,group_id").execute()
+        res = sb.table("students").select("name,group_id,account").execute()
         if res.data:
             df = pd.DataFrame(res.data)
             df = df[~df["group_id"].isin(["ADMIN","TEACHER"])]
@@ -583,7 +583,9 @@ with tab_tasks:
                 tasks = _get_active_tasks_for_student(stu_name)
                 if not tasks:
                     continue
-                label = f"{stu_name}　📋 {len(tasks)} 個進行中任務"
+                stu_row  = df_stu_sb[df_stu_sb["name"] == stu_name].iloc[0] if not df_stu_sb[df_stu_sb["name"] == stu_name].empty else None
+                account  = str(stu_row["account"]) if stu_row is not None and "account" in df_stu_sb.columns else ""
+                label = f"{stu_name}（{account}）　📋 {len(tasks)} 個進行中任務"
                 with st.expander(label, expanded=False):
                     df_t = pd.DataFrame(tasks)
                     st.dataframe(
