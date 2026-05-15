@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.32                                     ║
+# ║  dashboard.py  V1.33                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.32"
+DASHBOARD_VERSION = "1.33"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -114,7 +114,8 @@ def load_supabase_students():
         st.error(f"載入學生資料失敗：{e}")
         return pd.DataFrame()
 
-
+@st.cache_data(ttl=600)
+def load_students():
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df   = conn.read(worksheet="students", ttl=600).fillna("").astype(str)
