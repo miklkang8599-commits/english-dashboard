@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.31                                     ║
+# ║  dashboard.py  V1.32                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.31"
+DASHBOARD_VERSION = "1.32"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -101,7 +101,20 @@ def load_logs():
         return pd.DataFrame()
 
 @st.cache_data(ttl=600)
-def load_students():
+def load_supabase_students():
+    try:
+        sb  = get_supabase()
+        res = sb.table("students").select("name,group_id").execute()
+        if res.data:
+            df = pd.DataFrame(res.data)
+            df = df[~df["group_id"].isin(["ADMIN","TEACHER"])]
+            return df
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"載入學生資料失敗：{e}")
+        return pd.DataFrame()
+
+
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df   = conn.read(worksheet="students", ttl=600).fillna("").astype(str)
@@ -290,7 +303,7 @@ if col_r3.button("🔄 更新資料", use_container_width=True):
 st.divider()
 
 # ── Tab ───────────────────────────────────────────────────────────────────────
-tab_monitor, tab_report = st.tabs(["📊 數據監控", "📋 全能英文學習報告"])
+tab_monitor, tab_report, tab_tasks = st.tabs(["📊 數據監控", "📋 全能英文學習報告", "📋 學生任務列表"])
 
 # 共用：班級清單（Tab1/Tab2 都需要）
 all_groups_t2 = sorted(df_s[~df_s['分組'].isin(['ADMIN','TEACHER'])]['分組'].unique()) if not df_s.empty and '分組' in df_s.columns else []
@@ -529,6 +542,59 @@ with tab_report:
                 st.text_area("報告內容（可複製）", "\n".join(rpt_lines), height=400)
             else:
                 st.info("無符合條件的資料")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Tab3：學生任務列表
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_tasks:
+    df_stu_sb = load_supabase_students()
+
+    # 篩出進行中任務
+    df_active = df_a[df_a["狀態"] == "進行中"].copy() if not df_a.empty and "狀態" in df_a.columns else pd.DataFrame()
+
+    if df_stu_sb.empty:
+        st.info("無學生資料")
+    elif df_active.empty:
+        st.info("目前沒有進行中的任務")
+    else:
+        # 建立 任務名稱清單（已清理）
+        def _get_active_tasks_for_student(stu_name):
+            tasks = []
+            for _, row in df_active.iterrows():
+                assigned = [s.strip() for s in str(row.get("指派學生","")).split(",") if s.strip()]
+                if stu_name in assigned:
+                    tname     = _clean_task_name(str(row.get("任務名稱","")))
+                    end_date  = str(row.get("結束日期",""))[:10]
+                    task_type = str(row.get("類型",""))
+                    tasks.append({"任務名稱": tname, "類型": task_type, "結束日期": end_date})
+            return tasks
+
+        # 依班級分組顯示
+        groups = sorted(df_stu_sb["group_id"].unique().tolist())
+        for grp in groups:
+            stu_in_grp = df_stu_sb[df_stu_sb["group_id"] == grp]["name"].tolist()
+            # 只顯示有進行中任務的班級
+            grp_has_tasks = any(_get_active_tasks_for_student(n) for n in stu_in_grp)
+            if not grp_has_tasks:
+                continue
+            st.markdown(f"#### 班級：{grp}")
+            for stu_name in stu_in_grp:
+                tasks = _get_active_tasks_for_student(stu_name)
+                if not tasks:
+                    continue
+                label = f"{stu_name}　📋 {len(tasks)} 個進行中任務"
+                with st.expander(label, expanded=False):
+                    df_t = pd.DataFrame(tasks)
+                    st.dataframe(
+                        df_t,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "任務名稱": st.column_config.TextColumn("任務名稱", width=None),
+                            "類型":     st.column_config.TextColumn("類型",     width=60),
+                            "結束日期": st.column_config.TextColumn("結束日期", width=80),
+                        }
+                    )
 
 st.divider()
 st.caption(f"英文全能練習系統 數據監控儀表板 V{DASHBOARD_VERSION}　© 2026")
