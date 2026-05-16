@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.36                                     ║
+# ║  dashboard.py  V1.39                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.36"
+DASHBOARD_VERSION = "1.39"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -149,18 +149,40 @@ def load_question_sheet(sheet_name: str) -> pd.DataFrame:
 
 def _parse_qid(qid: str):
     """
-    解析 question_id，例如 '南一_112_2_單選_1_13'
-    回傳 (版本, 年度, 冊編號, 課編號, 句編號, 題型)
+    解析 question_id，例如：
+      '南一_112_2_單選_1_13'
+      'V_wonder world_115_4_單字重組_3_1'
+    找到題型位置，題型前所有部分合併為版本，題型後依序為 課編號、句編號
+    年度和冊編號在題型前的數字部分
     """
     parts = str(qid).split("_")
     # 找題型位置
     for i, p in enumerate(parts):
         if p in _QTYPE_SHEETS:
             qtype = p
-            # 版本=parts[0], 年度=parts[1], 冊=parts[2], 課=parts[i+1], 句=parts[i+2]
-            version = parts[0] if len(parts) > 0 else ""
-            nendo   = parts[1] if len(parts) > 1 else ""
-            册号    = parts[2] if len(parts) > 2 else ""
+            # 題型前：可能有多個部分組成版本，最後兩個數字為年度、冊編號
+            pre = parts[:i]  # 題型前所有部分
+            # 從後往前找年度（4位數）和冊編號（1-2位數字）
+            nendo = ""
+            册号  = ""
+            ver_parts = list(pre)
+            # 找年度（3位以上數字）
+            for j in range(len(ver_parts)-1, -1, -1):
+                if _try_int(ver_parts[j]) and len(ver_parts[j]) >= 3:
+                    nendo = ver_parts[j]
+                    ver_parts.pop(j)
+                    break
+            # 找冊編號（1-2位數字，在年度之後）
+            for j in range(len(ver_parts)-1, -1, -1):
+                if _try_int(ver_parts[j]):
+                    册号 = ver_parts[j]
+                    ver_parts.pop(j)
+                    break
+            version = "_".join(ver_parts) if ver_parts else ""
+            # 去掉版本前綴（如 'V_南一' → '南一', 'V_wonder world' → 'wonder world'）
+            version = re.sub(r'^[A-Za-z]_', '', version)
+            # 統一 '南ㄧ' 和 '南一'
+            version = version.replace('ㄧ', '一')
             course  = parts[i+1] if len(parts) > i+1 else ""
             sent    = parts[i+2] if len(parts) > i+2 else ""
             return {"版本": version, "年度": nendo, "冊編號": 册号,
@@ -214,7 +236,7 @@ def build_question_lookup(qids: tuple) -> dict:
             for col in key_cols:
                 if col in p and col in df.columns:
                     val = str(p[col]).strip()
-                    mask &= df[col].apply(_norm) == _norm(val)
+                    mask &= df[col].apply(lambda x: _norm(x).replace('ㄧ','一')) == _norm(val).replace('ㄧ','一')
             rows = df[mask]
             if not rows.empty:
                 row = rows.iloc[0]
