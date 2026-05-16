@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.40                                     ║
+# ║  dashboard.py  V1.41                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.40"
+DASHBOARD_VERSION = "1.41"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -125,18 +125,18 @@ def load_students():
 
 # 題型工作表對應：content=題目欄, answer=答案欄
 _QTYPE_SHEETS = {
-    "單選":    {"sheet": "單選",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "單選題目",        "answer": "單選答案"},
-    "文意文法":{"sheet": "單選",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "單選題目",        "answer": "單選答案"},
-    "重組":    {"sheet": "重組",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "重組中文題目",     "answer": "重組英文答案"},
-    "閱讀重組":{"sheet": "重組",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "重組中文題目",     "answer": "重組英文答案"},
-    "閱讀單句":{"sheet": "閱讀單句","key": ["版本","年度","冊編號","課編號","句編號"], "content": "題目",            "answer": "答案"},
-    "朗讀":    {"sheet": "朗讀",    "key": ["版本","年度","冊編號","課編號","句編號"], "content": "朗讀句子",        "answer": ""},
-    "拼單字":  {"sheet": "拼單字",  "key": ["版本","年度","冊編號","課編號","句編號"], "content": "中文意思",        "answer": "英文單字"},
-    "單字重組":{"sheet": "拼單字",  "key": ["版本","年度","冊編號","課編號","句編號"], "content": "中文意思",        "answer": "英文單字"},
-    "聽力音標":{"sheet": "聽力音標","key": ["版本","單元編號","組編號","符號編號"],    "content": "",               "answer": "KK符號"},
-    "KK音選字":{"sheet": "聽力音標","key": ["版本","單元編號","組編號","符號編號"],    "content": "",               "answer": "KK符號"},
-    "聽力重組":{"sheet": "聽力重組","key": ["版本","年度","冊編號","課編號","句編號"], "content": "",               "answer": "聽力重組英文答案"},
-    "聽力單字":{"sheet": "聽力單字","key": ["版本","單元編號","組編號","符號編號"],    "content": "",               "answer": "單字"},
+    "單選":    {"sheet": "單選",    "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "單選題目",        "answer": "單選答案",        "prefix": ""},
+    "文意文法":{"sheet": "單選",    "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "單選題目",        "answer": "單選答案",        "prefix": ""},
+    "重組":    {"sheet": "重組",    "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "重組中文題目",     "answer": "重組英文答案",    "prefix": ""},
+    "閱讀重組":{"sheet": "重組",    "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "重組中文題目",     "answer": "重組英文答案",    "prefix": ""},
+    "閱讀單句":{"sheet": "閱讀單句","key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "題目",            "answer": "答案",            "prefix": "RM"},
+    "朗讀":    {"sheet": "朗讀",    "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "朗讀句子",        "answer": "",                "prefix": "R"},
+    "拼單字":  {"sheet": "拼單字",  "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "中文意思",        "answer": "英文單字",        "prefix": "V"},
+    "單字重組":{"sheet": "拼單字",  "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "中文意思",        "answer": "英文單字",        "prefix": "V"},
+    "聽力音標":{"sheet": "聽力音標","key": ["版本","單元編號","組編號","符號編號"],           "content": "",               "answer": "KK符號",          "prefix": "LP"},
+    "KK音選字":{"sheet": "聽力音標","key": ["版本","單元編號","組編號","符號編號"],           "content": "",               "answer": "KK符號",          "prefix": "LP"},
+    "聽力重組":{"sheet": "聽力句子重組","key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "",            "answer": "聽力重組英文答案","prefix": "LS"},
+    "聽力單字":{"sheet": "聽力單字","key": ["版本","單元編號","組編號","符號編號"],           "content": "",               "answer": "單字",            "prefix": "LP"},
 }
 
 @st.cache_data(ttl=600)
@@ -150,52 +150,110 @@ def load_question_sheet(sheet_name: str) -> pd.DataFrame:
 
 def _parse_qid(qid: str):
     """
-    解析 question_id，例如：
-      '南一_112_2_單選_1_13'
-      'V_wonder world_115_4_單字重組_3_1'
-      'LP_KK音選字_1_5_25'  → 版本=KK音選字, 單元編號=1, 組編號=5, 符號編號=25
+    解析 question_id，支援所有格式：
+      '南一_112_2_單選_1_1_13'           → 重組/單選（含單元）
+      'V_南一_115_4_單字_1_16'           → 拼單字（V_ 前綴）
+      'R_南一_114_1_朗讀_1_8'            → 朗讀（R_ 前綴）
+      'RM_南一_114_1_閱讀單句_1_8'       → 閱讀單句（RM_ 前綴）
+      'LS_南一_114_1_聽力重組_1_8'       → 聽力重組（LS_ 前綴）
+      'LP_KK音選字_1_5_25'              → 聽力音標（LP_ 前綴）
     """
-    parts = str(qid).split("_")
-    # 找題型位置
-    for i, p in enumerate(parts):
-        if p in _QTYPE_SHEETS:
-            qtype = p
-            cfg   = _QTYPE_SHEETS[qtype]
-            pre   = parts[:i]
-            post  = parts[i+1:]
+    s     = str(qid)
+    parts = s.split("_")
 
-            # 聽力音標類：key = 版本、單元編號、組編號、符號編號
-            if "單元編號" in cfg["key"]:
-                # 版本用題型名稱（工作表版本欄就是題型名）
-                version   = qtype
-                unit_no   = post[0] if len(post) > 0 else ""
-                group_no  = post[1] if len(post) > 1 else ""
-                symbol_no = post[2] if len(post) > 2 else ""
-                return {"版本": version, "單元編號": unit_no,
-                        "組編號": group_no, "符號編號": symbol_no, "題型": qtype}
+    # 依前綴決定題型
+    prefix_map = {
+        "V":  "拼單字",
+        "R":  "朗讀",
+        "RM": "閱讀單句",
+        "LS": "聽力重組",
+        "LP": "聽力音標",
+    }
+    prefix = ""
+    rest   = parts
+    if len(parts) > 1 and parts[0] in prefix_map:
+        prefix = parts[0]
+        rest   = parts[1:]
+        forced_type = prefix_map[prefix]
+    else:
+        forced_type = None
 
-            # 一般題型：題型前反向找年度（3位數）和冊號
-            ver_parts = list(pre)
-            nendo = ""
-            册号  = ""
-            for j in range(len(ver_parts)-1, -1, -1):
-                if _try_int(ver_parts[j]) and len(ver_parts[j]) >= 3:
-                    nendo = ver_parts[j]
-                    ver_parts.pop(j)
-                    break
-            for j in range(len(ver_parts)-1, -1, -1):
-                if _try_int(ver_parts[j]):
-                    册号 = ver_parts[j]
-                    ver_parts.pop(j)
-                    break
-            version = "_".join(ver_parts) if ver_parts else ""
-            version = re.sub(r'^[A-Za-z]_', '', version)
-            version = version.replace('ㄧ', '一')
-            course  = post[0] if len(post) > 0 else ""
-            sent    = post[1] if len(post) > 1 else ""
-            return {"版本": version, "年度": nendo, "冊編號": 册号,
-                    "課編號": course, "句編號": sent, "題型": qtype}
-    return None
+    # 聽力音標 LP：版本=題型名, 單元編號, 組編號, 符號編號
+    if prefix == "LP":
+        # LP_KK音選字_1_5_25
+        qtype   = rest[0] if rest else "聽力音標"
+        unit_no = rest[1] if len(rest) > 1 else ""
+        grp_no  = rest[2] if len(rest) > 2 else ""
+        sym_no  = rest[3] if len(rest) > 3 else ""
+        return {"版本": qtype, "單元編號": unit_no, "組編號": grp_no, "符號編號": sym_no, "題型": qtype}
+
+    # 一般題型：版本_年度_冊編號_單元_課編號_句編號（有些沒有單元）
+    # rest = [版本, 年度, 冊編號, (單元), 課編號, 句編號] 或含題型名
+    # 先在 rest 裡找題型名
+    qtype = forced_type
+    if not qtype:
+        for p in rest:
+            if p in _QTYPE_SHEETS:
+                qtype = p
+                break
+    if not qtype:
+        return None
+
+    # 去掉題型名（若存在於 rest）
+    if qtype in rest:
+        idx = rest.index(qtype)
+        pre_parts  = rest[:idx]
+        post_parts = rest[idx+1:]
+    else:
+        # 沒有題型名在 rest，全部當前置欄位
+        pre_parts  = rest
+        post_parts = []
+
+    # pre_parts 反向找：句編號(最後)、課編號(倒2)、單元(倒3,非數字)、冊編號(倒4)、年度(倒5,3位+)、其餘=版本
+    nums  = []
+    ver_p = []
+    unit  = ""
+    for p in pre_parts:
+        if _try_int(p):
+            nums.append(p)
+        else:
+            ver_p.append(p)
+
+    # 年度是最大的數字（3位以上）
+    nendo = ""
+    for n in nums:
+        if len(n) >= 3:
+            nendo = n
+            break
+    # 冊號是剩下數字中第一個
+    册号 = ""
+    for n in nums:
+        if n != nendo:
+            册号 = n
+            break
+    # 版本
+    version = "_".join(ver_p)
+    version = re.sub(r'^[A-Za-z]_', '', version)
+    version = version.replace('ㄧ', '一')
+
+    # post_parts 依序：課編號_句編號 or 單元_課編號_句編號
+    if len(post_parts) >= 3:
+        unit_val  = post_parts[0]
+        course    = post_parts[1]
+        sent      = post_parts[2]
+    elif len(post_parts) == 2:
+        unit_val  = ""
+        course    = post_parts[0]
+        sent      = post_parts[1]
+    elif len(post_parts) == 1:
+        unit_val  = ""
+        course    = ""
+        sent      = post_parts[0]
+    else:
+        unit_val = course = sent = ""
+
+    return {"版本": version, "年度": nendo, "冊編號": 册号,
+            "單元": unit_val, "課編號": course, "句編號": sent, "題型": qtype}
 
 def _norm(x):
     s = str(x).strip()
@@ -242,7 +300,7 @@ def build_question_lookup(qids: tuple) -> dict:
             p = parsed[qid]
             mask = pd.Series([True] * len(df), index=df.index)
             for col in key_cols:
-                if col in p and col in df.columns:
+                if col in p and col in df.columns and p[col] != "":
                     val = str(p[col]).strip()
                     mask &= df[col].apply(lambda x: _norm(x).replace('ㄧ','一')) == _norm(val).replace('ㄧ','一')
             rows = df[mask]
