@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.35                                     ║
+# ║  dashboard.py  V1.36                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.35"
+DASHBOARD_VERSION = "1.36"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -427,16 +427,16 @@ with tab_monitor:
                 # 時間加星期
                 if "時間" in disp.columns:
                     disp["時間"] = disp["時間"].apply(_fmt_time_with_weekday)
-                # 任務名稱：用任務編號對應 assignments 完整名稱，再截掉全形空格後綴
+                # 先保存原始 題目ID 序列（排序後）
+                orig_qids = stu_df[show_cols].sort_values("時間", ascending=False)["題目ID"].fillna("").astype(str).reset_index(drop=True) if "時間" in stu_df.columns else stu_df[show_cols]["題目ID"].fillna("").astype(str).reset_index(drop=True)
+
+                # 任務名稱：從 assignments 題目ID清單反查
                 if "任務名稱" in disp.columns:
-                    # 從 assignments 題目ID清單反查任務名稱
                     if not df_a.empty and "題目ID清單" in df_a.columns and "任務名稱" in df_a.columns:
-                        # 建立 qid → 任務名稱 對應表
                         qid_to_task = {}
                         for _, row in df_a.iterrows():
                             task_name = _clean_task_name(str(row.get("任務名稱","")))
                             qids_str  = str(row.get("題目ID清單",""))
-                            # 清單格式可能是逗號分隔字串或 list
                             if qids_str.startswith("["):
                                 import ast
                                 try: items = ast.literal_eval(qids_str)
@@ -444,31 +444,25 @@ with tab_monitor:
                             else:
                                 items = [q.strip() for q in qids_str.split(",") if q.strip()]
                             for q in items:
-                                # 去掉前綴 R_ 或其他前綴
                                 clean_q = re.sub(r'^[A-Za-z]_', '', q.strip())
-                                qid_to_task[q.strip()]   = task_name
-                                qid_to_task[clean_q]     = task_name
-                        # 套用到每一列
+                                qid_to_task[q.strip()] = task_name
+                                qid_to_task[clean_q]   = task_name
                         def _find_task(raw_qid):
-                            q = str(raw_qid).strip()
-                            if q in qid_to_task:
-                                return qid_to_task[q]
-                            # 嘗試去掉前綴比對
+                            q  = str(raw_qid).strip()
                             q2 = re.sub(r'^[A-Za-z]_', '', q)
-                            return qid_to_task.get(q2, "")
-                        # disp["題目ID"] 此時已被替換成題目內容，需用原始 stu_df
-                        orig_qids = stu_df[show_cols].sort_values("時間", ascending=False)["題目ID"].fillna("").astype(str).reset_index(drop=True) if "時間" in stu_df.columns else stu_df[show_cols]["題目ID"].fillna("").astype(str).reset_index(drop=True)
+                            return qid_to_task.get(q, qid_to_task.get(q2, ""))
                         disp["任務名稱"] = orig_qids.apply(_find_task)
                     else:
                         disp["任務名稱"] = disp["任務名稱"].apply(_clean_task_name)
-                # 題目ID → 題目內容，並新增正確答案欄
+
+                # 題目ID → 題目內容 + 正確答案（用原始 orig_qids 查詢）
                 if "題目ID" in disp.columns:
-                    qids = tuple(disp["題目ID"].astype(str).str.strip().unique())
-                    q_lookup = build_question_lookup(qids)
-                    disp["正確答案"] = disp["題目ID"].apply(
+                    raw_qids_tuple = tuple(orig_qids.unique())
+                    q_lookup = build_question_lookup(raw_qids_tuple)
+                    disp["正確答案"] = orig_qids.apply(
                         lambda x: q_lookup.get(str(x).strip(), {}).get("答案", "")
                     )
-                    disp["題目ID"] = disp["題目ID"].apply(
+                    disp["題目ID"] = orig_qids.apply(
                         lambda x: q_lookup.get(str(x).strip(), {}).get("題目", re.sub(r'^\[T\d+\]\s*', '', str(x)).strip())
                     )
                 # 欄位寬度設定
