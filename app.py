@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.45                                     ║
+# ║  dashboard.py  V1.46                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.45"
+DASHBOARD_VERSION = "1.46"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -290,6 +290,7 @@ def build_question_lookup(qids: tuple) -> dict:
         check_cols  = [c for c in key_cols + ([content_col] if content_col else []) if c]
         missing     = [c for c in check_cols if c not in df.columns]
         if missing:
+            st.warning(f"⚠️ 工作表「{cfg['sheet']}」缺少欄位：{missing}，實際欄位：{list(df.columns)}")
             continue
         for qid in ids:
             p = parsed[qid]
