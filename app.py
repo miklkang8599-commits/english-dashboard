@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.43                                     ║
+# ║  dashboard.py  V1.44                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.43"
+DASHBOARD_VERSION = "1.44"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -150,137 +150,101 @@ def load_question_sheet(sheet_name: str) -> pd.DataFrame:
 
 def _parse_qid(qid: str):
     """
-    解析 question_id，支援所有格式：
-      '南一_112_2_單選_1_1_13'           → 重組/單選（含單元）
-      'V_南一_115_4_單字_1_16'           → 拼單字（V_ 前綴）
-      'R_南一_114_1_朗讀_1_8'            → 朗讀（R_ 前綴）
-      'RM_南一_114_1_閱讀單句_1_8'       → 閱讀單句（RM_ 前綴）
-      'LS_南一_114_1_聽力重組_1_8'       → 聽力重組（LS_ 前綴）
-      'LP_KK音選字_1_5_25'              → 聽力音標（LP_ 前綴）
+    解析 question_id，格式來自 app.py：
+      無前綴：版本_年度_冊編號_單元_課編號_句編號  (重組/單選/對話重組/閱讀重組等)
+      R_    ：R_版本_年度_冊編號_單元_課編號_句編號 (朗讀)
+      RM_   ：RM_版本_年度_冊編號_單元_課編號_句編號 (閱讀單句)
+      V_    ：V_版本_年度_冊編號_單元_課編號_句編號  (拼單字/單字重組)
+      LS_   ：LS_版本_年度_冊編號_單元_課編號_句編號 (聽力重組)
+      LP_   ：LP_版本_單元編號_組編號_符號編號       (聽力音標)
     """
-    s     = str(qid)
+    s     = str(qid).strip()
     parts = s.split("_")
 
-    # 依前綴決定題型
-    prefix_map = {
-        "V":  "拼單字",
+    # 前綴對應題型
+    prefix_to_type = {
         "R":  "朗讀",
         "RM": "閱讀單句",
+        "V":  "拼單字",
         "LS": "聽力重組",
         "LP": "聽力音標",
     }
+
+    # 抽出前綴
     prefix = ""
-    rest   = parts
-    if len(parts) > 1 and parts[0] in prefix_map:
+    body   = parts
+    if parts[0] in prefix_to_type:
         prefix = parts[0]
-        rest   = parts[1:]
-        forced_type = prefix_map[prefix]
-    else:
-        forced_type = None
+        body   = parts[1:]
 
-    # 聽力音標 LP：版本=題型名, 單元編號, 組編號, 符號編號
+    # LP 聽力音標：LP_版本_單元編號_組編號_符號編號
     if prefix == "LP":
-        # LP_KK音選字_1_5_25
-        qtype   = rest[0] if rest else "聽力音標"
-        unit_no = rest[1] if len(rest) > 1 else ""
-        grp_no  = rest[2] if len(rest) > 2 else ""
-        sym_no  = rest[3] if len(rest) > 3 else ""
-        return {"版本": qtype, "單元編號": unit_no, "組編號": grp_no, "符號編號": sym_no, "題型": qtype}
+        ver    = body[0] if len(body) > 0 else ""
+        unit_n = body[1] if len(body) > 1 else ""
+        grp_n  = body[2] if len(body) > 2 else ""
+        sym_n  = body[3] if len(body) > 3 else ""
+        return {"版本": ver, "單元編號": unit_n, "組編號": grp_n,
+                "符號編號": sym_n, "題型": ver}  # 版本欄=題型名(如KK音選字)
 
-    # 一般題型：版本_年度_冊編號_單元_課編號_句編號（有些沒有單元）
-    # rest = [版本, 年度, 冊編號, (單元), 課編號, 句編號] 或含題型名
-    # 先在 rest 裡找題型名
-    qtype = forced_type
-    if not qtype:
-        for p in rest:
-            if p in _QTYPE_SHEETS:
-                qtype = p
-                break
-    if not qtype:
-        return None
+    # 一般格式：版本_年度_冊編號_單元_課編號_句編號
+    # body = [版本, 年度, 冊編號, 單元, 課編號, 句編號]
+    # 版本可能含空格如 "wonder world" → 已被 _ 分割
+    # 策略：從尾端取句編號、課編號（數字），往前找單元（非數字），再往前找冊（數字）、年度（3位數字）、其餘=版本
 
-    # 去掉題型名（若存在於 rest 且非 forced）
-    if not forced_type and qtype in rest:
-        idx = rest.index(qtype)
-        pre_parts  = rest[:idx]
-        post_parts = rest[idx+1:]
-    elif forced_type:
-        # 有前綴強制題型：rest = [版本, 年度, 冊編號, 單元, 課編號, 句編號]
-        # 找版本（非數字部分）、年度（3位數字）、冊號（1-2位數字）、單元（非數字）、課、句
-        pre_parts  = rest
-        post_parts = []
-    else:
-        pre_parts  = rest
-        post_parts = []
+    # 從尾端開始拆
+    rev = list(reversed(body))
+    sent   = rev[0] if len(rev) > 0 and _try_int(rev[0]) else ""
+    course = rev[1] if len(rev) > 1 and _try_int(rev[1]) else ""
 
-    # pre_parts 反向找版本、年度、冊號、單元
-    nums  = []
-    ver_p = []
-    unit_parts = []
-    for p in pre_parts:
-        if _try_int(p):
-            nums.append(p)
-        else:
-            unit_parts.append(p)
+    # 找單元：往後第一個非數字
+    unit_val = ""
+    unit_idx = -1
+    for i in range(2, len(rev)):
+        if not _try_int(rev[i]):
+            unit_val = rev[i]
+            unit_idx = i
+            break
 
-    # unit_parts 裡第一個是版本，其餘是單元
-    version_parts = []
-    unit_name_parts = []
-    # 版本：非數字、非題型名的前面部分；單元：非數字、屬於題型名或在數字中間的
-    # 簡單規則：第一個非數字片段是版本，之後的非數字片段是單元
-    found_nums = False
-    for p in pre_parts:
-        if _try_int(p):
-            found_nums = True
-        else:
-            if not found_nums:
-                version_parts.append(p)
-            else:
-                unit_name_parts.append(p)
-
-    # 從 nums 取年度（3位以上）和冊號
+    # 找冊號：單元之後第一個數字
+    册号 = ""
     nendo = ""
-    册号  = ""
-    remaining_nums = list(nums)
-    for n in remaining_nums:
-        if len(n) >= 3 and not nendo:
-            nendo = n
-    for n in remaining_nums:
-        if n != nendo and not 册号:
-            册号 = n
-
-    version = "_".join(version_parts)
-    version = re.sub(r'^[A-Za-z]_', '', version)
-    version = version.replace('ㄧ', '一')
-    unit_from_pre = "_".join(unit_name_parts)
-
-    # post_parts 依序：課編號_句編號 or 單元_課編號_句編號
-    if len(post_parts) >= 3:
-        unit_val  = post_parts[0]
-        course    = post_parts[1]
-        sent      = post_parts[2]
-    elif len(post_parts) == 2:
-        unit_val  = unit_from_pre
-        course    = post_parts[0]
-        sent      = post_parts[1]
-    elif len(post_parts) == 1:
-        unit_val  = unit_from_pre
-        course    = ""
-        sent      = post_parts[0]
+    ver_parts = []
+    if unit_idx >= 0:
+        after_unit = rev[unit_idx+1:]
+        nums_after = [p for p in after_unit if _try_int(p)]
+        non_nums   = [p for p in after_unit if not _try_int(p)]
+        ver_parts  = list(reversed(non_nums))
+        if len(nums_after) >= 2:
+            nendo = nums_after[1]  # 年度（較大）
+            册号  = nums_after[0]  # 冊號
+        elif len(nums_after) == 1:
+            n = nums_after[0]
+            if len(n) >= 3:
+                nendo = n
+            else:
+                册号 = n
     else:
-        # forced_type：從 pre_parts 尾端取課、句
-        # pre_parts = [版本, 年度, 冊, 單元, 課, 句]
-        all_nums_in_pre = [p for p in pre_parts if _try_int(p)]
-        unit_val = unit_from_pre
-        course   = all_nums_in_pre[-2] if len(all_nums_in_pre) >= 2 else ""
-        sent     = all_nums_in_pre[-1] if len(all_nums_in_pre) >= 1 else ""
-        # 年度、冊號從前面的數字取
-        if len(all_nums_in_pre) >= 4:
-            nendo = all_nums_in_pre[0]
-            册号  = all_nums_in_pre[1]
-        elif len(all_nums_in_pre) >= 3:
-            nendo = all_nums_in_pre[0]
-            册号  = all_nums_in_pre[1]
+        # 沒找到單元，用全部
+        all_nums  = [p for p in body if _try_int(p)]
+        ver_parts = [p for p in body if not _try_int(p)]
+        nendo = all_nums[0] if len(all_nums) > 0 and len(all_nums[0]) >= 3 else ""
+        册号  = all_nums[1] if len(all_nums) > 1 else ""
+
+    version = "_".join(ver_parts)
+    version = re.sub(r'^[A-Za-z]_?', '', version).strip('_')
+    version = version.replace('ㄧ', '一')
+
+    # 題型：有前綴用前綴對應，否則用單元名稱找
+    if prefix:
+        qtype = prefix_to_type[prefix]
+        # 修正：若 qtype=拼單字 但單元是單字重組，維持單字重組題型
+        if unit_val in _QTYPE_SHEETS:
+            qtype = unit_val
+    else:
+        # 無前綴：單元名稱就是題型
+        qtype = unit_val if unit_val in _QTYPE_SHEETS else None
+        if not qtype:
+            return None
 
     return {"版本": version, "年度": nendo, "冊編號": 册号,
             "單元": unit_val, "課編號": course, "句編號": sent, "題型": qtype}
