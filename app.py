@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.46                                     ║
+# ║  dashboard.py  V1.47                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.46"
+DASHBOARD_VERSION = "1.47"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -290,7 +290,6 @@ def build_question_lookup(qids: tuple) -> dict:
         check_cols  = [c for c in key_cols + ([content_col] if content_col else []) if c]
         missing     = [c for c in check_cols if c not in df.columns]
         if missing:
-            st.warning(f"⚠️ 工作表「{cfg['sheet']}」缺少欄位：{missing}，實際欄位：{list(df.columns)}")
             continue
         for qid in ids:
             p = parsed[qid]
@@ -357,15 +356,16 @@ if not st.session_state['dash_logged_in']:
     col1, col2, col3 = st.columns([1,1,1])
     with col2:
         st.markdown("### 🔐 請登入")
-        pwd = st.text_input("密碼", type="password", key="dash_pwd")
-        if st.button("登入", use_container_width=True, type="primary"):
-            # 從 secrets 讀取管理員密碼
-            admin_pwd = st.secrets.get("ADMIN_PASSWORD", "admin123")
-            if pwd == admin_pwd:
-                st.session_state['dash_logged_in'] = True
-                st.rerun()
-            else:
-                st.error("密碼錯誤")
+        with st.form("login_form"):
+            pwd = st.text_input("密碼", type="password", key="dash_pwd")
+            submitted = st.form_submit_button("登入", use_container_width=True, type="primary")
+            if submitted:
+                admin_pwd = st.secrets.get("ADMIN_PASSWORD", "admin123")
+                if pwd == admin_pwd:
+                    st.session_state['dash_logged_in'] = True
+                    st.rerun()
+                else:
+                    st.error("密碼錯誤")
     st.stop()
 
 # ── 主介面 ────────────────────────────────────────────────────────────────────
@@ -383,6 +383,8 @@ col_r2.caption(f"logs: {len(df_l)} 筆　任務: {len(df_a)} 個")
 if col_r3.button("🔄 更新資料", use_container_width=True):
     load_assignments.clear()
     load_logs.clear()
+    load_question_sheet.clear()
+    build_question_lookup.clear()
     st.rerun()
 
 st.divider()
