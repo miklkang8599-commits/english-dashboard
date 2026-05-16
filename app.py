@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.39                                     ║
+# ║  dashboard.py  V1.40                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.39"
+DASHBOARD_VERSION = "1.40"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -134,6 +134,7 @@ _QTYPE_SHEETS = {
     "拼單字":  {"sheet": "拼單字",  "key": ["版本","年度","冊編號","課編號","句編號"], "content": "中文意思",        "answer": "英文單字"},
     "單字重組":{"sheet": "拼單字",  "key": ["版本","年度","冊編號","課編號","句編號"], "content": "中文意思",        "answer": "英文單字"},
     "聽力音標":{"sheet": "聽力音標","key": ["版本","單元編號","組編號","符號編號"],    "content": "",               "answer": "KK符號"},
+    "KK音選字":{"sheet": "聽力音標","key": ["版本","單元編號","組編號","符號編號"],    "content": "",               "answer": "KK符號"},
     "聽力重組":{"sheet": "聽力重組","key": ["版本","年度","冊編號","課編號","句編號"], "content": "",               "answer": "聽力重組英文答案"},
     "聽力單字":{"sheet": "聽力單字","key": ["版本","單元編號","組編號","符號編號"],    "content": "",               "answer": "單字"},
 }
@@ -152,39 +153,46 @@ def _parse_qid(qid: str):
     解析 question_id，例如：
       '南一_112_2_單選_1_13'
       'V_wonder world_115_4_單字重組_3_1'
-    找到題型位置，題型前所有部分合併為版本，題型後依序為 課編號、句編號
-    年度和冊編號在題型前的數字部分
+      'LP_KK音選字_1_5_25'  → 版本=KK音選字, 單元編號=1, 組編號=5, 符號編號=25
     """
     parts = str(qid).split("_")
     # 找題型位置
     for i, p in enumerate(parts):
         if p in _QTYPE_SHEETS:
             qtype = p
-            # 題型前：可能有多個部分組成版本，最後兩個數字為年度、冊編號
-            pre = parts[:i]  # 題型前所有部分
-            # 從後往前找年度（4位數）和冊編號（1-2位數字）
+            cfg   = _QTYPE_SHEETS[qtype]
+            pre   = parts[:i]
+            post  = parts[i+1:]
+
+            # 聽力音標類：key = 版本、單元編號、組編號、符號編號
+            if "單元編號" in cfg["key"]:
+                # 版本用題型名稱（工作表版本欄就是題型名）
+                version   = qtype
+                unit_no   = post[0] if len(post) > 0 else ""
+                group_no  = post[1] if len(post) > 1 else ""
+                symbol_no = post[2] if len(post) > 2 else ""
+                return {"版本": version, "單元編號": unit_no,
+                        "組編號": group_no, "符號編號": symbol_no, "題型": qtype}
+
+            # 一般題型：題型前反向找年度（3位數）和冊號
+            ver_parts = list(pre)
             nendo = ""
             册号  = ""
-            ver_parts = list(pre)
-            # 找年度（3位以上數字）
             for j in range(len(ver_parts)-1, -1, -1):
                 if _try_int(ver_parts[j]) and len(ver_parts[j]) >= 3:
                     nendo = ver_parts[j]
                     ver_parts.pop(j)
                     break
-            # 找冊編號（1-2位數字，在年度之後）
             for j in range(len(ver_parts)-1, -1, -1):
                 if _try_int(ver_parts[j]):
                     册号 = ver_parts[j]
                     ver_parts.pop(j)
                     break
             version = "_".join(ver_parts) if ver_parts else ""
-            # 去掉版本前綴（如 'V_南一' → '南一', 'V_wonder world' → 'wonder world'）
             version = re.sub(r'^[A-Za-z]_', '', version)
-            # 統一 '南ㄧ' 和 '南一'
             version = version.replace('ㄧ', '一')
-            course  = parts[i+1] if len(parts) > i+1 else ""
-            sent    = parts[i+2] if len(parts) > i+2 else ""
+            course  = post[0] if len(post) > 0 else ""
+            sent    = post[1] if len(post) > 1 else ""
             return {"版本": version, "年度": nendo, "冊編號": 册号,
                     "課編號": course, "句編號": sent, "題型": qtype}
     return None
