@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.41                                     ║
+# ║  dashboard.py  V1.43                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.41"
+DASHBOARD_VERSION = "1.43"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -128,7 +128,7 @@ _QTYPE_SHEETS = {
     "單選":    {"sheet": "單選",    "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "單選題目",        "answer": "單選答案",        "prefix": ""},
     "文意文法":{"sheet": "單選",    "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "單選題目",        "answer": "單選答案",        "prefix": ""},
     "重組":    {"sheet": "重組",    "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "重組中文題目",     "answer": "重組英文答案",    "prefix": ""},
-    "閱讀重組":{"sheet": "重組",    "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "重組中文題目",     "answer": "重組英文答案",    "prefix": ""},
+    "對話重組":{"sheet": "重組",    "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "重組中文題目",     "answer": "重組英文答案",    "prefix": ""},
     "閱讀單句":{"sheet": "閱讀單句","key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "題目",            "answer": "答案",            "prefix": "RM"},
     "朗讀":    {"sheet": "朗讀",    "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "朗讀句子",        "answer": "",                "prefix": "R"},
     "拼單字":  {"sheet": "拼單字",  "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "中文意思",        "answer": "英文單字",        "prefix": "V"},
@@ -199,42 +199,60 @@ def _parse_qid(qid: str):
     if not qtype:
         return None
 
-    # 去掉題型名（若存在於 rest）
-    if qtype in rest:
+    # 去掉題型名（若存在於 rest 且非 forced）
+    if not forced_type and qtype in rest:
         idx = rest.index(qtype)
         pre_parts  = rest[:idx]
         post_parts = rest[idx+1:]
+    elif forced_type:
+        # 有前綴強制題型：rest = [版本, 年度, 冊編號, 單元, 課編號, 句編號]
+        # 找版本（非數字部分）、年度（3位數字）、冊號（1-2位數字）、單元（非數字）、課、句
+        pre_parts  = rest
+        post_parts = []
     else:
-        # 沒有題型名在 rest，全部當前置欄位
         pre_parts  = rest
         post_parts = []
 
-    # pre_parts 反向找：句編號(最後)、課編號(倒2)、單元(倒3,非數字)、冊編號(倒4)、年度(倒5,3位+)、其餘=版本
+    # pre_parts 反向找版本、年度、冊號、單元
     nums  = []
     ver_p = []
-    unit  = ""
+    unit_parts = []
     for p in pre_parts:
         if _try_int(p):
             nums.append(p)
         else:
-            ver_p.append(p)
+            unit_parts.append(p)
 
-    # 年度是最大的數字（3位以上）
+    # unit_parts 裡第一個是版本，其餘是單元
+    version_parts = []
+    unit_name_parts = []
+    # 版本：非數字、非題型名的前面部分；單元：非數字、屬於題型名或在數字中間的
+    # 簡單規則：第一個非數字片段是版本，之後的非數字片段是單元
+    found_nums = False
+    for p in pre_parts:
+        if _try_int(p):
+            found_nums = True
+        else:
+            if not found_nums:
+                version_parts.append(p)
+            else:
+                unit_name_parts.append(p)
+
+    # 從 nums 取年度（3位以上）和冊號
     nendo = ""
-    for n in nums:
-        if len(n) >= 3:
+    册号  = ""
+    remaining_nums = list(nums)
+    for n in remaining_nums:
+        if len(n) >= 3 and not nendo:
             nendo = n
-            break
-    # 冊號是剩下數字中第一個
-    册号 = ""
-    for n in nums:
-        if n != nendo:
+    for n in remaining_nums:
+        if n != nendo and not 册号:
             册号 = n
-            break
-    # 版本
-    version = "_".join(ver_p)
+
+    version = "_".join(version_parts)
     version = re.sub(r'^[A-Za-z]_', '', version)
     version = version.replace('ㄧ', '一')
+    unit_from_pre = "_".join(unit_name_parts)
 
     # post_parts 依序：課編號_句編號 or 單元_課編號_句編號
     if len(post_parts) >= 3:
@@ -242,15 +260,27 @@ def _parse_qid(qid: str):
         course    = post_parts[1]
         sent      = post_parts[2]
     elif len(post_parts) == 2:
-        unit_val  = ""
+        unit_val  = unit_from_pre
         course    = post_parts[0]
         sent      = post_parts[1]
     elif len(post_parts) == 1:
-        unit_val  = ""
+        unit_val  = unit_from_pre
         course    = ""
         sent      = post_parts[0]
     else:
-        unit_val = course = sent = ""
+        # forced_type：從 pre_parts 尾端取課、句
+        # pre_parts = [版本, 年度, 冊, 單元, 課, 句]
+        all_nums_in_pre = [p for p in pre_parts if _try_int(p)]
+        unit_val = unit_from_pre
+        course   = all_nums_in_pre[-2] if len(all_nums_in_pre) >= 2 else ""
+        sent     = all_nums_in_pre[-1] if len(all_nums_in_pre) >= 1 else ""
+        # 年度、冊號從前面的數字取
+        if len(all_nums_in_pre) >= 4:
+            nendo = all_nums_in_pre[0]
+            册号  = all_nums_in_pre[1]
+        elif len(all_nums_in_pre) >= 3:
+            nendo = all_nums_in_pre[0]
+            册号  = all_nums_in_pre[1]
 
     return {"版本": version, "年度": nendo, "冊編號": 册号,
             "單元": unit_val, "課編號": course, "句編號": sent, "題型": qtype}
