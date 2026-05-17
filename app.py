@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.49                                     ║
+# ║  dashboard.py  V1.51                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.49"
+DASHBOARD_VERSION = "1.51"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -104,7 +104,7 @@ def load_logs():
 def load_supabase_students():
     try:
         sb  = get_supabase()
-        res = sb.table("students").select("name,group_id,account").execute()
+        res = sb.table("students").select("name,group_id,account,school_year").execute()
         if res.data:
             df = pd.DataFrame(res.data)
             df = df[~df["group_id"].isin(["ADMIN","TEACHER"])]
@@ -656,15 +656,16 @@ with tab_report:
             if df_rpt_ans.empty:
                 st.info("此時間範圍內無答題資料")
             else:
-                # 學生清單依 note1 排序
-                if not df_s.empty and "姓名" in df_s.columns:
-                    if "note1" in df_s.columns:
-                        df_s_ord = df_s[["姓名","note1"]].copy()
-                        df_s_ord["_n"] = pd.to_numeric(df_s_ord["note1"], errors="coerce")
-                        students_all = df_s_ord.sort_values("_n")["姓名"].tolist()
-                    else:
-                        students_all = sorted(df_s["姓名"].unique().tolist())
-                    students_all = [s for s in students_all if s in df_rpt_ans["姓名"].unique()]
+                # 學生清單依 Supabase school_year 降冪排列
+                df_stu_rpt = load_supabase_students()
+                stu_sy_map = {}  # name → school_year
+                if not df_stu_rpt.empty and "name" in df_stu_rpt.columns and "school_year" in df_stu_rpt.columns:
+                    stu_sy_map = {str(r["name"]): str(r["school_year"]) for _, r in df_stu_rpt.iterrows()}
+                    df_stu_rpt["_sy"] = pd.to_numeric(df_stu_rpt["school_year"], errors="coerce")
+                    df_stu_rpt = df_stu_rpt.sort_values("_sy", ascending=False)
+                    present = set(df_rpt_ans["姓名"].unique())
+                    students_all = [n for n in df_stu_rpt["name"].tolist() if n in present]
+                    students_all += sorted([n for n in present if n not in set(students_all)])
                 else:
                     students_all = sorted(df_rpt_ans["姓名"].unique().tolist())
 
@@ -693,7 +694,8 @@ with tab_report:
                             stat_line += f"\n  練習：{prac_tot}題"
                         task_stats.append(stat_line)
 
-                    lines.append(f"【{stu}】")
+                    sy = stu_sy_map.get(stu, "")
+                    lines.append(f"【{stu}】{sy}")
                     lines.append(f"{rpt_from_str} ～ {rpt_to_str}")
                     lines.extend(task_stats)
                     lines.append("")
@@ -728,7 +730,10 @@ with tab_report:
                 stu_ans["_task"] = stu_ans["題目ID"].apply(
                     lambda x: qid_task_map.get(str(x).strip(), qid_task_map.get(re.sub(r'^[A-Za-z]_','',str(x).strip()), "未知任務"))
                 )
-                lines = [f"【{sel_stu}】"]
+                df_stu_rpt2 = load_supabase_students()
+                stu_sy_map2 = {str(r["name"]): str(r["school_year"]) for _, r in df_stu_rpt2.iterrows()} if not df_stu_rpt2.empty and "school_year" in df_stu_rpt2.columns else {}
+                sy2 = stu_sy_map2.get(sel_stu, "")
+                lines = [f"【{sel_stu}】{sy2}"]
                 lines.append(f"{rpt_from_str} ～ {rpt_to_str}")
                 for day in sorted(stu_ans["_date"].unique()):
                     day_df = stu_ans[stu_ans["_date"] == day]
