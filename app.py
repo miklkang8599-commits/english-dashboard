@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.47                                     ║
+# ║  dashboard.py  V1.49                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.47"
+DASHBOARD_VERSION = "1.49"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -680,10 +680,18 @@ with tab_report:
                     )
                     task_stats = []
                     for tname, tdf in stu_ans.groupby("_task"):
-                        total = len(tdf)
-                        ok    = len(tdf[tdf["結果"]=="✅"])
-                        err   = len(tdf[tdf["結果"]=="❌"])
-                        task_stats.append(f"{tname}\n答題{total}題　✅{ok}　❌{err}")
+                        prac_df  = tdf[tdf["結果"] == "練習"]
+                        test_df  = tdf[tdf["結果"].isin(["✅","❌"])]
+                        prac_tot = len(prac_df)
+                        test_ok  = len(test_df[test_df["結果"]=="✅"])
+                        test_err = len(test_df[test_df["結果"]=="❌"])
+                        test_tot = len(test_df)
+                        stat_line = f"{tname}"
+                        if test_tot > 0:
+                            stat_line += f"\n  測驗：{test_tot}題　✅{test_ok}　❌{test_err}"
+                        if prac_tot > 0:
+                            stat_line += f"\n  練習：{prac_tot}題"
+                        task_stats.append(stat_line)
 
                     lines.append(f"【{stu}】")
                     lines.append(f"{rpt_from_str} ～ {rpt_to_str}")
@@ -721,6 +729,7 @@ with tab_report:
                     lambda x: qid_task_map.get(str(x).strip(), qid_task_map.get(re.sub(r'^[A-Za-z]_','',str(x).strip()), "未知任務"))
                 )
                 lines = [f"【{sel_stu}】"]
+                lines.append(f"{rpt_from_str} ～ {rpt_to_str}")
                 for day in sorted(stu_ans["_date"].unique()):
                     day_df = stu_ans[stu_ans["_date"] == day]
                     try:
@@ -731,10 +740,20 @@ with tab_report:
                         day_label = day
                     lines.append(f"\n📅 {day_label}")
                     for tname, tdf in day_df.groupby("_task"):
-                        total = len(tdf)
-                        ok    = len(tdf[tdf["結果"]=="✅"])
-                        err   = len(tdf[tdf["結果"]=="❌"])
-                        lines.append(f"{tname}\n答題{total}題　✅{ok}　❌{err}")
+                        # 練習 vs 測驗分開統計
+                        prac_df = tdf[tdf["結果"] == "練習"]
+                        test_df = tdf[tdf["結果"].isin(["✅","❌"])]
+                        prac_ok  = len(prac_df[prac_df["結果"]=="✅"]) if not prac_df.empty else 0
+                        prac_err = len(prac_df[prac_df["結果"]=="❌"]) if not prac_df.empty else 0
+                        prac_tot = len(prac_df)
+                        test_ok  = len(test_df[test_df["結果"]=="✅"])
+                        test_err = len(test_df[test_df["結果"]=="❌"])
+                        test_tot = len(test_df)
+                        lines.append(f"{tname}")
+                        if test_tot > 0:
+                            lines.append(f"  測驗：{test_tot}題　✅{test_ok}　❌{test_err}")
+                        if prac_tot > 0:
+                            lines.append(f"  練習：{prac_tot}題　✅{prac_ok}　❌{prac_err}")
                 lines.append("")
                 st.text_area("個人報告（可複製）", "\n".join(lines), height=500, key="one_rpt_text")
 
