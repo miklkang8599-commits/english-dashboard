@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.52                                     ║
+# ║  dashboard.py  V1.53                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.52"
+DASHBOARD_VERSION = "1.53"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -232,7 +232,7 @@ def _parse_qid(qid: str):
         册号  = all_nums[1] if len(all_nums) > 1 else ""
 
     version = "_".join(ver_parts)
-    version = re.sub(r'^[A-Za-z]_?', '', version).strip('_')
+    version = re.sub(r'^[A-Za-z]_', '', version)
     version = version.replace('ㄧ', '一')
 
     # 題型：有前綴用前綴對應，否則用單元名稱找
