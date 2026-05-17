@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.51                                     ║
+# ║  dashboard.py  V1.52                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.51"
+DASHBOARD_VERSION = "1.52"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -662,7 +662,7 @@ with tab_report:
                 if not df_stu_rpt.empty and "name" in df_stu_rpt.columns and "school_year" in df_stu_rpt.columns:
                     stu_sy_map = {str(r["name"]): str(r["school_year"]) for _, r in df_stu_rpt.iterrows()}
                     df_stu_rpt["_sy"] = pd.to_numeric(df_stu_rpt["school_year"], errors="coerce")
-                    df_stu_rpt = df_stu_rpt.sort_values("_sy", ascending=False)
+                    df_stu_rpt = df_stu_rpt[~df_stu_rpt["group_id"].isin(["ADMIN","TEACHER"])].sort_values("_sy", ascending=True)
                     present = set(df_rpt_ans["姓名"].unique())
                     students_all = [n for n in df_stu_rpt["name"].tolist() if n in present]
                     students_all += sorted([n for n in present if n not in set(students_all)])
