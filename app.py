@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.53                                     ║
+# ║  dashboard.py  V1.54                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.53"
+DASHBOARD_VERSION = "1.54"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -510,6 +510,8 @@ with tab_monitor:
                 show_cols = [c for c in ["時間","分組","題目ID","結果","學生答案","任務名稱"] if c in stu_df.columns]
                 disp = stu_df[show_cols].sort_values("時間", ascending=False).reset_index(drop=True).copy() if "時間" in stu_df.columns else stu_df[show_cols].reset_index(drop=True).copy()
                 disp = disp.fillna("").astype(str)
+                if "學生答案" in disp.columns:
+                    disp["學生答案"] = disp["學生答案"].str.lower()
                 # 時間加星期
                 if "時間" in disp.columns:
                     disp["時間"] = disp["時間"].apply(_fmt_time_with_weekday)
