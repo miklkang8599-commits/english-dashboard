@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.54                                     ║
+# ║  dashboard.py  V1.56                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.54"
+DASHBOARD_VERSION = "1.56"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -588,11 +588,17 @@ with tab_report:
         return s.strip()
 
     # ── 建立 qid → 任務名稱 對應（精簡版）──────────────────────────────────
-    def _build_qid_task_map(df_a):
+    def _build_qid_task_map(df_a, stu_name=None):
+        """建立 qid → 任務名稱，若指定 stu_name 只比對該學生被指派的任務"""
         qid_task = {}
         if df_a.empty or "題目ID清單" not in df_a.columns:
             return qid_task
         for _, row in df_a.iterrows():
+            # 若指定學生，只用該學生的任務
+            if stu_name:
+                assigned = [s.strip() for s in str(row.get("指派學生","")).split(",") if s.strip()]
+                if stu_name not in assigned:
+                    continue
             tname = _short_task_name(str(row.get("任務名稱","")))
             for q in str(row.get("題目ID清單","")).split(","):
                 q = q.strip()
@@ -602,7 +608,7 @@ with tab_report:
         return qid_task
 
     # ── 時間選擇（同數據監控）──────────────────────────────────────────────
-    PERIODS_RPT = ["今日","三天","一週","兩週","本月","自訂"]
+    PERIODS_RPT = ["今日", "昨天", "前天", "三天", "七天", "30天"]
     if "rpt_period" not in st.session_state:
         st.session_state["rpt_period"] = "三天"
 
@@ -614,22 +620,30 @@ with tab_report:
             st.session_state["rpt_period"] = p
             st.rerun()
 
+    # 自訂時間
+    with st.expander("📅 自訂時間範圍"):
+        rc1, rc2, rc3 = st.columns([2, 2, 1])
+        rpt_from_custom = rc1.date_input("開始", value=date.today(), key="rpt_custom_from_inp")
+        rpt_to_custom   = rc2.date_input("結束", value=date.today(), key="rpt_custom_to_inp")
+        if rc3.button("套用", use_container_width=True):
+            st.session_state["rpt_custom_from"] = rpt_from_custom
+            st.session_state["rpt_custom_to"]   = rpt_to_custom
+            st.session_state["rpt_period"]       = "自訂"
+            st.rerun()
+
     period_rpt = st.session_state["rpt_period"]
     today = date.today()
-    if period_rpt == "今日":
-        rpt_from, rpt_to = today, today
-    elif period_rpt == "三天":
-        rpt_from, rpt_to = today - timedelta(days=2), today
-    elif period_rpt == "一週":
-        rpt_from, rpt_to = today - timedelta(days=6), today
-    elif period_rpt == "兩週":
-        rpt_from, rpt_to = today - timedelta(days=13), today
-    elif period_rpt == "本月":
-        rpt_from, rpt_to = today.replace(day=1), today
-    else:
-        c1, c2 = st.columns(2)
-        rpt_from = c1.date_input("開始日期", today - timedelta(days=6), key="rpt_from")
-        rpt_to   = c2.date_input("結束日期", today, key="rpt_to")
+    _rpt_d_map = {
+        "今日": (today, today),
+        "昨天": (today - timedelta(days=1), today - timedelta(days=1)),
+        "前天": (today - timedelta(days=2), today - timedelta(days=2)),
+        "三天": (today - timedelta(days=2), today),
+        "七天": (today - timedelta(days=6), today),
+        "30天": (today - timedelta(days=29), today),
+        "自訂": (st.session_state.get("rpt_custom_from", today),
+                 st.session_state.get("rpt_custom_to",   today)),
+    }
+    rpt_from, rpt_to = _rpt_d_map.get(period_rpt, (today, today))
 
     rpt_from_str = rpt_from.strftime("%Y-%m-%d")
     rpt_to_str   = rpt_to.strftime("%Y-%m-%d")
@@ -678,9 +692,11 @@ with tab_report:
                         continue
                     # 依任務分組統計
                     stu_ans = stu_ans.copy()
+                    stu_qid_task_map = _build_qid_task_map(df_a, stu_name=stu)
                     stu_ans["_task"] = stu_ans["題目ID"].apply(
-                        lambda x: qid_task_map.get(str(x).strip(), qid_task_map.get(re.sub(r'^[A-Za-z]_','',str(x).strip()), "未知任務"))
+                        lambda x: stu_qid_task_map.get(str(x).strip(), stu_qid_task_map.get(re.sub(r'^[A-Za-z]_','',str(x).strip()), ""))
                     )
+                    stu_ans = stu_ans[stu_ans["_task"] != ""]  # 去掉非該學生任務的記錄
                     task_stats = []
                     for tname, tdf in stu_ans.groupby("_task"):
                         prac_df  = tdf[tdf["結果"] == "練習"]
@@ -729,9 +745,11 @@ with tab_report:
                 st.info("此時間範圍內無答題資料")
             else:
                 stu_ans["_date"] = stu_ans["時間"].str[:10]
+                stu_qid_task_map2 = _build_qid_task_map(df_a, stu_name=sel_stu)
                 stu_ans["_task"] = stu_ans["題目ID"].apply(
-                    lambda x: qid_task_map.get(str(x).strip(), qid_task_map.get(re.sub(r'^[A-Za-z]_','',str(x).strip()), "未知任務"))
+                    lambda x: stu_qid_task_map2.get(str(x).strip(), stu_qid_task_map2.get(re.sub(r'^[A-Za-z]_','',str(x).strip()), ""))
                 )
+                stu_ans = stu_ans[stu_ans["_task"] != ""]  # 去掉非該學生任務的記錄
                 df_stu_rpt2 = load_supabase_students()
                 stu_sy_map2 = {str(r["name"]): str(r["school_year"]) for _, r in df_stu_rpt2.iterrows()} if not df_stu_rpt2.empty and "school_year" in df_stu_rpt2.columns else {}
                 sy2 = stu_sy_map2.get(sel_stu, "")
