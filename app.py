@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.57                                     ║
+# ║  dashboard.py  V1.58                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.57"
+DASHBOARD_VERSION = "1.58"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -453,17 +453,25 @@ with tab_monitor:
         ]
     df_lf_ans = df_lf[~df_lf["結果"].str.contains("📖", na=False)] if not df_lf.empty and "結果" in df_lf.columns else pd.DataFrame()
 
-    # 整體統計
+    # 整體統計（測驗/練習分開）
     st.divider()
-    mc1, mc2, mc3, mc4 = st.columns(4)
-    total_ans = len(df_lf_ans)
-    total_ok  = len(df_lf_ans[df_lf_ans["結果"] == "✅"]) if not df_lf_ans.empty else 0
-    total_err = len(df_lf_ans[df_lf_ans["結果"] == "❌"]) if not df_lf_ans.empty else 0
-    acc       = f"{int(total_ok/total_ans*100)}%" if total_ans else "—"
-    mc1.metric("📝 總答題", total_ans)
-    mc2.metric("✅ 答對",   total_ok)
-    mc3.metric("❌ 答錯",   total_err)
+    if not df_lf_ans.empty:
+        _test_df = df_lf_ans[df_lf_ans["結果"].isin(["✅","❌"])]
+        _prac_df = df_lf_ans[df_lf_ans["結果"] == "練習"]
+        test_tot = len(_test_df)
+        test_ok  = len(_test_df[_test_df["結果"]=="✅"])
+        test_err = len(_test_df[_test_df["結果"]=="❌"])
+        prac_tot = len(_prac_df)
+        acc      = f"{int(test_ok/test_tot*100)}%" if test_tot else "—"
+    else:
+        test_tot = test_ok = test_err = prac_tot = 0
+        acc = "—"
+    mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+    mc1.metric("📝 測驗", test_tot)
+    mc2.metric("✅ 答對", test_ok)
+    mc3.metric("❌ 答錯", test_err)
     mc4.metric("🎯 正確率", acc)
+    mc5.metric("🔄 練習", prac_tot)
 
     # ── 工具：時間加星期 ──────────────────────────────────────────────
     _WEEKDAY_CN = ["一","二","三","四","五","六","日"]
@@ -501,11 +509,14 @@ with tab_monitor:
             student_names = sorted(df_lf_ans["姓名"].unique().tolist())
         for stu in student_names:
             stu_df = df_lf_ans[df_lf_ans["姓名"] == stu].copy()
-            ok  = len(stu_df[stu_df["結果"] == "✅"])
-            err = len(stu_df[stu_df["結果"] == "❌"])
-            tot = len(stu_df)
-            acc_stu = f"{int(ok/tot*100)}%" if tot else "—"
-            label = f"{stu}　📝 {tot} 題　✅ {ok}　❌ {err}　🎯 {acc_stu}"
+            stu_test = stu_df[stu_df["結果"].isin(["✅","❌"])]
+            stu_prac = stu_df[stu_df["結果"] == "練習"]
+            ok      = len(stu_test[stu_test["結果"]=="✅"])
+            err     = len(stu_test[stu_test["結果"]=="❌"])
+            test_n  = len(stu_test)
+            prac_n  = len(stu_prac)
+            acc_stu = f"{int(ok/test_n*100)}%" if test_n else "—"
+            label   = f"{stu}　測驗 {test_n}題 ✅{ok} ❌{err} 🎯{acc_stu}　練習 {prac_n}題"
             with st.expander(label, expanded=False):
                 show_cols = [c for c in ["時間","分組","題目ID","結果","學生答案","任務名稱"] if c in stu_df.columns]
                 disp = stu_df[show_cols].sort_values("時間", ascending=False).reset_index(drop=True).copy() if "時間" in stu_df.columns else stu_df[show_cols].reset_index(drop=True).copy()
