@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.56                                     ║
+# ║  dashboard.py  V1.57                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.56"
+DASHBOARD_VERSION = "1.57"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -625,7 +625,7 @@ with tab_report:
         rc1, rc2, rc3 = st.columns([2, 2, 1])
         rpt_from_custom = rc1.date_input("開始", value=date.today(), key="rpt_custom_from_inp")
         rpt_to_custom   = rc2.date_input("結束", value=date.today(), key="rpt_custom_to_inp")
-        if rc3.button("套用", use_container_width=True):
+        if rc3.button("套用", key="rpt_custom_apply", use_container_width=True):
             st.session_state["rpt_custom_from"] = rpt_from_custom
             st.session_state["rpt_custom_to"]   = rpt_to_custom
             st.session_state["rpt_period"]       = "自訂"
