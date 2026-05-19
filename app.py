@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.66                                     ║
+# ║  dashboard.py  V1.67                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.66"
+DASHBOARD_VERSION = "1.67"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -804,6 +804,11 @@ with tab_report:
             stu_opts = []
 
         sel_stu = st.selectbox("選擇學生", stu_opts, key="rpt2_stu") if stu_opts else None
+
+        # 學生改變時清除舊報告
+        if sel_stu != st.session_state.get("rpt2_stu_prev"):
+            st.session_state["rpt2_stu_prev"] = sel_stu
+            st.session_state.pop("rpt_one_text", None)
 
         if sel_stu and st.button("📋 產生個人報告", type="primary", key="gen_one"):
             stu_ans = df_rpt_ans[df_rpt_ans["姓名"] == sel_stu].copy() if not df_rpt_ans.empty else pd.DataFrame()
