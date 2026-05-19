@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.63                                     ║
+# ║  dashboard.py  V1.64                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.63"
+DASHBOARD_VERSION = "1.64"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -410,7 +410,6 @@ with tab_monitor:
             st.session_state["t2_period"]       = "自訂"
             st.session_state["t2_do_query"]     = False
 
-    # 更新按鈕（時間範圍下方）— 按下才載入資料
     period = st.session_state.get("t2_period", "三天")
     _d_map = {
         "今日": (today_t2, today_t2),
@@ -426,6 +425,7 @@ with tab_monitor:
     date_from_str = date_from_t2.strftime("%Y-%m-%d")
     date_to_str   = date_to_t2.strftime("%Y-%m-%d")
 
+    # 更新按鈕：清 cache 並把資料存入 session_state
     _ref_c1, _ref_c2 = st.columns([5, 1])
     _ref_c1.caption(f"📅 {period}：{date_from_str} ～ {date_to_str}")
     if _ref_c2.button("🔄 更新", key="t1_refresh_btn", use_container_width=True):
@@ -434,13 +434,20 @@ with tab_monitor:
         load_assignments.clear()
         load_question_sheet.clear()
         build_question_lookup.clear()
+        st.session_state["t1_df_l"] = load_logs()
+        st.session_state["t1_df_s"] = load_students()
+        st.session_state["t1_df_a"] = load_assignments()
 
-    # 載入資料（更新按鈕後或初次載入）
-    df_l = load_logs()
-    df_s = load_students()
-    df_a = load_assignments()
+    # 從 session_state 取資料，沒有才載入
+    if "t1_df_l" not in st.session_state:
+        st.session_state["t1_df_l"] = load_logs()
+        st.session_state["t1_df_s"] = load_students()
+        st.session_state["t1_df_a"] = load_assignments()
+
+    df_l = st.session_state["t1_df_l"]
+    df_s = st.session_state["t1_df_s"]
+    df_a = st.session_state["t1_df_a"]
     all_groups_t2 = sorted(df_s[~df_s['分組'].isin(['ADMIN','TEACHER'])]['分組'].unique()) if not df_s.empty and '分組' in df_s.columns else []
-    _ref_c1.caption(f"📅 {period}：{date_from_str} ～ {date_to_str}　logs: {len(df_l)} 筆")
 
     # 依時間篩選 logs
     df_lf = df_l.copy() if not df_l.empty else pd.DataFrame()
@@ -660,11 +667,19 @@ with tab_report:
         load_logs.clear()
         load_assignments.clear()
         load_students.clear()
+        st.session_state["t2_df_l"] = load_logs()
+        st.session_state["t2_df_a"] = load_assignments()
+        st.session_state["t2_df_s"] = load_students()
 
-    # 載入資料
-    df_l = load_logs()
-    df_a = load_assignments()
-    df_s = load_students()
+    # 從 session_state 取資料，沒有才載入
+    if "t2_df_l" not in st.session_state:
+        st.session_state["t2_df_l"] = load_logs()
+        st.session_state["t2_df_a"] = load_assignments()
+        st.session_state["t2_df_s"] = load_students()
+
+    df_l = st.session_state["t2_df_l"]
+    df_a = st.session_state["t2_df_a"]
+    df_s = st.session_state["t2_df_s"]
     _rpt_rc1.caption(f"📅 {period_rpt}：{rpt_from_str} ～ {rpt_to_str}　logs: {len(df_l)} 筆")
 
     # ── 篩選 logs ──────────────────────────────────────────────────────────
