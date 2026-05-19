@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.64                                     ║
+# ║  dashboard.py  V1.65                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.64"
+DASHBOARD_VERSION = "1.65"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -398,6 +398,7 @@ with tab_monitor:
                                use_container_width=True):
             st.session_state["t2_period"] = _p
             st.session_state["t2_do_query"] = False
+            st.rerun()
 
     # 自訂時間
     with st.expander("📅 自訂時間範圍"):
@@ -409,6 +410,7 @@ with tab_monitor:
             st.session_state["t2_custom_to"]   = t2_to_custom
             st.session_state["t2_period"]       = "自訂"
             st.session_state["t2_do_query"]     = False
+            st.rerun()
 
     period = st.session_state.get("t2_period", "三天")
     _d_map = {
@@ -634,6 +636,7 @@ with tab_report:
                               type="primary" if st.session_state["rpt_period"]==p else "secondary",
                               use_container_width=True):
             st.session_state["rpt_period"] = p
+            st.rerun()
 
     # 自訂時間
     with st.expander("📅 自訂時間範圍"):
@@ -644,6 +647,7 @@ with tab_report:
             st.session_state["rpt_custom_from"] = rpt_from_custom
             st.session_state["rpt_custom_to"]   = rpt_to_custom
             st.session_state["rpt_period"]       = "自訂"
+            st.rerun()
 
     period_rpt = st.session_state["rpt_period"]
     today = date.today()
