@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.62                                     ║
+# ║  dashboard.py  V1.63                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.62"
+DASHBOARD_VERSION = "1.63"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -381,11 +381,6 @@ tab_monitor, tab_report, tab_tasks = st.tabs(["📊 數據監控", "📋 全能�
 # Tab1：數據監控
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_monitor:
-    # 載入資料
-    df_l = load_logs()
-    df_s = load_students()
-    df_a = load_assignments()
-    all_groups_t2 = sorted(df_s[~df_s['分組'].isin(['ADMIN','TEACHER'])]['分組'].unique()) if not df_s.empty and '分組' in df_s.columns else []
     st.subheader("📊 數據監控")
     now_tw   = get_now()
     today_t2 = now_tw.date()
@@ -403,7 +398,6 @@ with tab_monitor:
                                use_container_width=True):
             st.session_state["t2_period"] = _p
             st.session_state["t2_do_query"] = False
-            st.rerun()
 
     # 自訂時間
     with st.expander("📅 自訂時間範圍"):
@@ -415,10 +409,8 @@ with tab_monitor:
             st.session_state["t2_custom_to"]   = t2_to_custom
             st.session_state["t2_period"]       = "自訂"
             st.session_state["t2_do_query"]     = False
-            st.rerun()
 
-    # 更新按鈕（時間範圍下方）
-    _ref_c1, _ref_c2 = st.columns([5, 1])
+    # 更新按鈕（時間範圍下方）— 按下才載入資料
     period = st.session_state.get("t2_period", "三天")
     _d_map = {
         "今日": (today_t2, today_t2),
@@ -433,14 +425,22 @@ with tab_monitor:
     date_from_t2, date_to_t2 = _d_map.get(period, (today_t2, today_t2))
     date_from_str = date_from_t2.strftime("%Y-%m-%d")
     date_to_str   = date_to_t2.strftime("%Y-%m-%d")
-    _ref_c1.caption(f"📅 {period}：{date_from_str} ～ {date_to_str}　logs: {len(df_l)} 筆")
+
+    _ref_c1, _ref_c2 = st.columns([5, 1])
+    _ref_c1.caption(f"📅 {period}：{date_from_str} ～ {date_to_str}")
     if _ref_c2.button("🔄 更新", key="t1_refresh_btn", use_container_width=True):
         load_logs.clear()
         load_students.clear()
         load_assignments.clear()
         load_question_sheet.clear()
         build_question_lookup.clear()
-        st.rerun()
+
+    # 載入資料（更新按鈕後或初次載入）
+    df_l = load_logs()
+    df_s = load_students()
+    df_a = load_assignments()
+    all_groups_t2 = sorted(df_s[~df_s['分組'].isin(['ADMIN','TEACHER'])]['分組'].unique()) if not df_s.empty and '分組' in df_s.columns else []
+    _ref_c1.caption(f"📅 {period}：{date_from_str} ～ {date_to_str}　logs: {len(df_l)} 筆")
 
     # 依時間篩選 logs
     df_lf = df_l.copy() if not df_l.empty else pd.DataFrame()
@@ -581,10 +581,6 @@ with tab_monitor:
 # Tab2：全能英文學習報告
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_report:
-    # 載入資料
-    df_l  = load_logs()
-    df_a  = load_assignments()
-    df_s  = load_students()
     st.subheader("📋 全能英文學習報告")
 
     # ── 任務名稱精簡：去掉日期部分，保留到人名 ──────────────────────────────
@@ -631,7 +627,6 @@ with tab_report:
                               type="primary" if st.session_state["rpt_period"]==p else "secondary",
                               use_container_width=True):
             st.session_state["rpt_period"] = p
-            st.rerun()
 
     # 自訂時間
     with st.expander("📅 自訂時間範圍"):
@@ -642,7 +637,6 @@ with tab_report:
             st.session_state["rpt_custom_from"] = rpt_from_custom
             st.session_state["rpt_custom_to"]   = rpt_to_custom
             st.session_state["rpt_period"]       = "自訂"
-            st.rerun()
 
     period_rpt = st.session_state["rpt_period"]
     today = date.today()
@@ -660,14 +654,18 @@ with tab_report:
     rpt_from_str = rpt_from.strftime("%Y-%m-%d")
     rpt_to_str   = rpt_to.strftime("%Y-%m-%d")
 
-    # 更新按鈕（時間範圍下方）
+    # 更新按鈕（時間範圍下方）— 按下才重新載入
     _rpt_rc1, _rpt_rc2 = st.columns([5, 1])
-    _rpt_rc1.caption(f"📅 {period_rpt}：{rpt_from_str} ～ {rpt_to_str}　logs: {len(df_l)} 筆")
     if _rpt_rc2.button("🔄 更新", key="t2_refresh_btn", use_container_width=True):
         load_logs.clear()
         load_assignments.clear()
         load_students.clear()
-        st.rerun()
+
+    # 載入資料
+    df_l = load_logs()
+    df_a = load_assignments()
+    df_s = load_students()
+    _rpt_rc1.caption(f"📅 {period_rpt}：{rpt_from_str} ～ {rpt_to_str}　logs: {len(df_l)} 筆")
 
     # ── 篩選 logs ──────────────────────────────────────────────────────────
     df_rpt = df_l.copy() if not df_l.empty else pd.DataFrame()
