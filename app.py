@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.58                                     ║
+# ║  dashboard.py  V1.59                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.58"
+DASHBOARD_VERSION = "1.59"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -372,33 +372,29 @@ if not st.session_state['dash_logged_in']:
 st.title("📊 英文全能練習系統 — 數據監控儀表板")
 st.caption(f"V{DASHBOARD_VERSION}　獨立版，直連 Supabase")
 
-# 載入資料
-df_a = load_assignments()
-df_l = load_logs()
-df_s = load_students()
-
-# 頂部資料更新按鈕
-col_r1, col_r2, col_r3 = st.columns([4, 1, 1])
-col_r2.caption(f"logs: {len(df_l)} 筆　任務: {len(df_a)} 個")
-if col_r3.button("🔄 更新資料", use_container_width=True):
-    load_assignments.clear()
-    load_logs.clear()
-    load_question_sheet.clear()
-    build_question_lookup.clear()
-    st.rerun()
-
 st.divider()
 
 # ── Tab ───────────────────────────────────────────────────────────────────────
 tab_monitor, tab_report, tab_tasks = st.tabs(["📊 數據監控", "📋 全能英文學習報告", "📋 學生任務列表"])
 
-# 共用：班級清單（Tab1/Tab2 都需要）
-all_groups_t2 = sorted(df_s[~df_s['分組'].isin(['ADMIN','TEACHER'])]['分組'].unique()) if not df_s.empty and '分組' in df_s.columns else []
-
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab1：數據監控
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_monitor:
+    # 獨立更新按鈕
+    t1c1, t1c2, t1c3 = st.columns([4, 1, 1])
+    if t1c3.button("🔄 更新", key="t1_refresh", use_container_width=True):
+        load_logs.clear()
+        load_students.clear()
+        load_question_sheet.clear()
+        build_question_lookup.clear()
+        st.rerun()
+
+    # 載入資料
+    df_l = load_logs()
+    df_s = load_students()
+    all_groups_t2 = sorted(df_s[~df_s['分組'].isin(['ADMIN','TEACHER'])]['分組'].unique()) if not df_s.empty and '分組' in df_s.columns else []
+    t1c2.caption(f"logs: {len(df_l)} 筆")
     st.subheader("📊 數據監控")
     now_tw   = get_now()
     today_t2 = now_tw.date()
@@ -583,6 +579,19 @@ with tab_monitor:
 # Tab2：全能英文學習報告
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_report:
+    # 獨立更新按鈕
+    t2c1, t2c2, t2c3 = st.columns([4, 1, 1])
+    if t2c3.button("🔄 更新", key="t2_refresh", use_container_width=True):
+        load_logs.clear()
+        load_assignments.clear()
+        load_students.clear()
+        st.rerun()
+
+    # 載入資料
+    df_l  = load_logs()
+    df_a  = load_assignments()
+    df_s  = load_students()
+    t2c2.caption(f"logs: {len(df_l)} 筆　任務: {len(df_a)} 個")
     st.subheader("📋 全能英文學習報告")
 
     # ── 任務名稱精簡：去掉日期部分，保留到人名 ──────────────────────────────
@@ -798,6 +807,16 @@ with tab_report:
 # Tab3：學生任務列表
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_tasks:
+    # 獨立更新按鈕
+    t3c1, t3c2, t3c3 = st.columns([4, 1, 1])
+    if t3c3.button("🔄 更新", key="t3_refresh", use_container_width=True):
+        load_assignments.clear()
+        load_supabase_students.clear()
+        st.rerun()
+
+    # 載入資料
+    df_a      = load_assignments()
+    t3c2.caption(f"任務: {len(df_a)} 個")
     df_stu_sb = load_supabase_students()
 
     # 篩出進行中任務
