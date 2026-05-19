@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.59                                     ║
+# ║  dashboard.py  V1.60                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.59"
+DASHBOARD_VERSION = "1.60"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -393,6 +393,7 @@ with tab_monitor:
     # 載入資料
     df_l = load_logs()
     df_s = load_students()
+    df_a = load_assignments()
     all_groups_t2 = sorted(df_s[~df_s['分組'].isin(['ADMIN','TEACHER'])]['分組'].unique()) if not df_s.empty and '分組' in df_s.columns else []
     t1c2.caption(f"logs: {len(df_l)} 筆")
     st.subheader("📊 數據監控")
