@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.68                                     ║
+# ║  dashboard.py  V1.69                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.68"
+DASHBOARD_VERSION = "1.69"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -805,6 +805,7 @@ with tab_report:
 
         def _clear_one_report():
             st.session_state.pop("rpt_one_text", None)
+            st.session_state.pop("one_rpt_text", None)
 
         sel_stu = st.selectbox("選擇學生", stu_opts, key="rpt2_stu",
                                on_change=_clear_one_report) if stu_opts else None
@@ -846,7 +847,7 @@ with tab_report:
                 st.session_state["rpt_one_text"] = "\n".join(lines)
 
         if st.session_state.get("rpt_one_text"):
-            st.text_area("個人報告（可複製）", st.session_state["rpt_one_text"], height=500, key="one_rpt_text")
+            st.text_area("個人報告（可複製）", st.session_state["rpt_one_text"], height=500)
         elif "rpt_one_text" in st.session_state:
             st.info("此時間範圍內無答題資料")
 
