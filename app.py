@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.74                                     ║
+# ║  dashboard.py  V1.75                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.74"
+DASHBOARD_VERSION = "1.75"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -628,7 +628,8 @@ with tab_report:
     # ── 時間選擇（同數據監控）──────────────────────────────────────────────
     PERIODS_RPT = ["今日", "昨天", "前天", "三天", "七天", "30天"]
     if "rpt_period" not in st.session_state:
-        st.session_state["rpt_period"] = "三天"
+        st.session_state["rpt_period"] = "七天"
+        st.session_state["rpt_auto_gen"] = True  # 第一次進入自動產生
 
     rpt_cols = st.columns(len(PERIODS_RPT))
     for i, p in enumerate(PERIODS_RPT):
@@ -700,13 +701,10 @@ with tab_report:
         """顯示詳細答題清單，格式同數據監控"""
         detail = tdf.copy().reset_index(drop=True)
         detail = detail.fillna("").astype(str)
-        # 時間格式
         if "時間" in detail.columns:
             detail["時間"] = detail["時間"].apply(_fmt_time_with_weekday)
-        # 學生答案小寫
         if "學生答案" in detail.columns:
             detail["學生答案"] = detail["學生答案"].str.lower()
-        # 題目內容 + 正確答案
         if "題目ID" in detail.columns:
             orig_qids = detail["題目ID"].tolist()
             q_lookup  = build_question_lookup(tuple(set(orig_qids)))
@@ -720,6 +718,8 @@ with tab_report:
         if "正確答案" in detail.columns: col_cfg_d["正確答案"] = st.column_config.TextColumn("正確答案", width=30)
         if "題目ID"   in detail.columns: col_cfg_d["題目ID"]   = st.column_config.TextColumn("題目",     width=None)
         st.dataframe(detail[ordered], use_container_width=True, hide_index=True, column_config=col_cfg_d)
+
+    def _gen_report_lines(stu, stu_ans, stu_sy_map, all_stu_task, from_str, to_str):
         """產生單一學生的報告行"""
         stu_ans = stu_ans.copy()
         stu_ans["_task"] = stu_ans["題目ID"].apply(lambda x: _get_task_for_stu(stu, x, all_stu_task))
@@ -757,7 +757,8 @@ with tab_report:
     # ════════════════════════════════════════════
     with sec1:
         st.caption("依學生列出各任務答題統計，可展開查看詳細清單")
-        if st.button("📋 產生全班報告", type="primary", key="gen_all"):
+        _auto_gen = st.session_state.pop("rpt_auto_gen", False)
+        if st.button("📋 產生全班報告", type="primary", key="gen_all") or _auto_gen:
             load_logs.clear()
             load_assignments.clear()
             df_l_fresh = load_logs()
