@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.69                                     ║
+# ║  dashboard.py  V1.70                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.69"
+DASHBOARD_VERSION = "1.70"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -763,23 +763,30 @@ with tab_report:
                     stu_ans = stu_ans[stu_ans["_task"] != ""]
                     if stu_ans.empty:
                         continue
-                    task_stats = []
-                    for tname, tdf in stu_ans.groupby("_task"):
-                        prac_tot = len(tdf[tdf["結果"] == "練習"])
-                        test_df  = tdf[tdf["結果"].isin(["✅","❌"])]
-                        test_ok  = len(test_df[test_df["結果"]=="✅"])
-                        test_err = len(test_df[test_df["結果"]=="❌"])
-                        test_tot = len(test_df)
-                        stat_line = f"{tname}"
-                        if test_tot > 0:
-                            stat_line += f"\n  測驗：{test_tot}題　✅{test_ok}　❌{test_err}"
-                        if prac_tot > 0:
-                            stat_line += f"\n  練習：{prac_tot}題"
-                        task_stats.append(stat_line)
+                    stu_ans["_date"] = stu_ans["時間"].str[:10]
                     sy = stu_sy_map.get(stu, "")
                     lines.append(f"【{stu}】{sy}")
                     lines.append(f"{rpt_from_str} ～ {rpt_to_str}")
-                    lines.extend(task_stats)
+                    for day in sorted(stu_ans["_date"].unique()):
+                        day_df = stu_ans[stu_ans["_date"] == day]
+                        try:
+                            dt = pd.to_datetime(day)
+                            wd = ["一","二","三","四","五","六","日"][dt.weekday()]
+                            day_label = f"{day}（{wd}）"
+                        except:
+                            day_label = day
+                        lines.append(f"\n📅 {day_label}")
+                        for tname, tdf in day_df.groupby("_task"):
+                            prac_tot = len(tdf[tdf["結果"] == "練習"])
+                            test_df  = tdf[tdf["結果"].isin(["✅","❌"])]
+                            test_ok  = len(test_df[test_df["結果"]=="✅"])
+                            test_err = len(test_df[test_df["結果"]=="❌"])
+                            test_tot = len(test_df)
+                            lines.append(f"{tname}")
+                            if test_tot > 0:
+                                lines.append(f"  測驗：{test_tot}題　✅{test_ok}　❌{test_err}")
+                            if prac_tot > 0:
+                                lines.append(f"  練習：{prac_tot}題")
                     lines.append("")
 
                 st.session_state["rpt_all_text"] = "\n".join(lines) if lines else ""
