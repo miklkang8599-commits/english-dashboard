@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.77                                     ║
+# ║  dashboard.py  V1.78                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.77"
+DASHBOARD_VERSION = "1.78"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -728,7 +728,7 @@ with tab_report:
         stu_ans["_date"] = stu_ans["時間"].str[:10]
         sy = stu_sy_map.get(stu, "")
         lines = [f"【{stu}】{sy}", f"{from_str} ～ {to_str}"]
-        for day in sorted(stu_ans["_date"].unique()):
+        for day in sorted(stu_ans["_date"].unique(), reverse=True):
             day_df = stu_ans[stu_ans["_date"] == day]
             try:
                 dt = pd.to_datetime(day)
@@ -806,7 +806,7 @@ with tab_report:
                 stu_df = pd.DataFrame(stu_block["df"])
                 with st.expander(f"【{stu}】{sy}", expanded=False):
                     st.caption(f"{_from} ～ {_to}")
-                    for day in sorted(stu_df["_date"].unique()):
+                    for day in sorted(stu_df["_date"].unique(), reverse=True):
                         day_df = stu_df[stu_df["_date"] == day]
                         try:
                             dt = pd.to_datetime(day)
@@ -882,7 +882,7 @@ with tab_report:
                 st.info("此時間範圍內無答題資料")
             else:
                 st.caption(f"{_from1} ～ {_to1}")
-                for day in sorted(stu_df1["_date"].unique()):
+                for day in sorted(stu_df1["_date"].unique(), reverse=True):
                     day_df = stu_df1[stu_df1["_date"] == day]
                     try:
                         dt = pd.to_datetime(day)
