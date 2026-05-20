@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.75                                     ║
+# ║  dashboard.py  V1.77                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.75"
+DASHBOARD_VERSION = "1.77"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -375,7 +375,7 @@ st.caption(f"V{DASHBOARD_VERSION}　獨立版，直連 Supabase")
 st.divider()
 
 # ── Tab ───────────────────────────────────────────────────────────────────────
-tab_monitor, tab_report, tab_tasks = st.tabs(["📊 數據監控", "📋 全能英文學習報告", "📋 學生任務列表"])
+tab_report, tab_monitor, tab_tasks = st.tabs(["📋 全能英文學習報告", "📊 數據監控", "📋 學生任務列表"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab1：數據監控
@@ -629,7 +629,6 @@ with tab_report:
     PERIODS_RPT = ["今日", "昨天", "前天", "三天", "七天", "30天"]
     if "rpt_period" not in st.session_state:
         st.session_state["rpt_period"] = "七天"
-        st.session_state["rpt_auto_gen"] = True  # 第一次進入自動產生
 
     rpt_cols = st.columns(len(PERIODS_RPT))
     for i, p in enumerate(PERIODS_RPT):
@@ -757,7 +756,7 @@ with tab_report:
     # ════════════════════════════════════════════
     with sec1:
         st.caption("依學生列出各任務答題統計，可展開查看詳細清單")
-        _auto_gen = st.session_state.pop("rpt_auto_gen", False)
+        _auto_gen = "rpt_all_data" not in st.session_state
         if st.button("📋 產生全班報告", type="primary", key="gen_all") or _auto_gen:
             load_logs.clear()
             load_assignments.clear()
