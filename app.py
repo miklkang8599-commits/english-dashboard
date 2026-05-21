@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.79                                     ║
+# ║  dashboard.py  V1.80                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.79"
+DASHBOARD_VERSION = "1.80"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -668,7 +668,7 @@ with tab_report:
     st.caption(f"📅 {period_rpt}：{rpt_from_str} ～ {rpt_to_str}")
 
     st.divider()
-    sec1, sec2 = st.tabs(["📊 產生全班報告-即時更新", "👤 產生個人報告-即時更新"])
+    sec1, sec2 = st.tabs(["📊 全班統計報告", "👤 個別學生報告"])
 
     # 預先建立所有學生的 qid→任務 對應（一次完成）
     @st.cache_data(ttl=600)
@@ -783,7 +783,7 @@ with tab_report:
     with sec1:
         st.caption("依學生列出各任務答題統計，可展開查看詳細清單")
         _auto_gen = "rpt_all_data" not in st.session_state
-        if st.button("📋 產生全班報告", type="primary", key="gen_all") or _auto_gen:
+        if st.button("📋 產生全班報告-即時更新", type="primary", key="gen_all") or _auto_gen:
             load_logs.clear()
             load_assignments.clear()
             df_l_fresh = load_logs()
@@ -870,7 +870,7 @@ with tab_report:
         sel_stu = st.selectbox("選擇學生", stu_opts_all, key="rpt2_stu",
                                on_change=_clear_one_report) if stu_opts_all else None
 
-        if sel_stu and st.button("📋 產生個人報告", type="primary", key="gen_one"):
+        if sel_stu and st.button("📋 產生個人報告-即時更新", type="primary", key="gen_one"):
             # 重新載入資料
             load_logs.clear()
             load_assignments.clear()
