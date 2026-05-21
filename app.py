@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.78                                     ║
+# ║  dashboard.py  V1.79                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,12 +17,13 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.78"
+DASHBOARD_VERSION = "1.79"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
     "question_id": "題目ID", "result": "結果",
-    "student_answer": "學生答案", "score": "分數", "task_name": "任務名稱"
+    "student_answer": "學生答案", "score": "分數", "task_name": "任務名稱",
+    "elapsed_sec": "答題秒數"
 }
 ASSIGN_COLS = {
     "created_at": "建立時間", "task_name": "任務名稱",
@@ -83,7 +84,7 @@ def load_logs():
         page = 0
         while True:
             res = sb.table("logs").select(
-                "created_at,name,group_id,question_id,result,student_answer,score,task_name"
+                "created_at,name,group_id,question_id,result,student_answer,score,task_name,elapsed_sec"
             ).order("created_at", desc=False).range(page*1000, (page+1)*1000-1).execute()
             if not res.data:
                 break
@@ -667,7 +668,7 @@ with tab_report:
     st.caption(f"📅 {period_rpt}：{rpt_from_str} ～ {rpt_to_str}")
 
     st.divider()
-    sec1, sec2 = st.tabs(["📊 全班統計報告", "👤 個別學生報告"])
+    sec1, sec2 = st.tabs(["📊 產生全班報告-即時更新", "👤 產生個人報告-即時更新"])
 
     # 預先建立所有學生的 qid→任務 對應（一次完成）
     @st.cache_data(ttl=600)
@@ -709,16 +710,38 @@ with tab_report:
             q_lookup  = build_question_lookup(tuple(set(orig_qids)))
             detail["正確答案"] = [q_lookup.get(q, {}).get("答案", "") for q in orig_qids]
             detail["題目ID"]   = [q_lookup.get(q, {}).get("題目", q) for q in orig_qids]
-        ordered = [c for c in ["時間","題目ID","結果","學生答案","正確答案"] if c in detail.columns]
+        if "答題秒數" in detail.columns:
+            detail["答題時間"] = detail["答題秒數"].apply(_fmt_elapsed)
+        ordered = [c for c in ["時間","題目ID","結果","學生答案","正確答案","答題時間"] if c in detail.columns]
         col_cfg_d = {}
         if "時間"     in detail.columns: col_cfg_d["時間"]     = st.column_config.TextColumn("時間",     width=70)
         if "結果"     in detail.columns: col_cfg_d["結果"]     = st.column_config.TextColumn("結果",     width=30)
         if "學生答案" in detail.columns: col_cfg_d["學生答案"] = st.column_config.TextColumn("學生答案", width=30)
         if "正確答案" in detail.columns: col_cfg_d["正確答案"] = st.column_config.TextColumn("正確答案", width=30)
         if "題目ID"   in detail.columns: col_cfg_d["題目ID"]   = st.column_config.TextColumn("題目",     width=None)
+        if "答題時間" in detail.columns: col_cfg_d["答題時間"] = st.column_config.TextColumn("答題時間", width=60)
         st.dataframe(detail[ordered], use_container_width=True, hide_index=True, column_config=col_cfg_d)
 
-    def _gen_report_lines(stu, stu_ans, stu_sy_map, all_stu_task, from_str, to_str):
+    def _fmt_elapsed(sec_val):
+        """把秒數格式化為 m:ss 或 ss秒"""
+        try:
+            s = int(float(str(sec_val)))
+            if s <= 0: return ""
+            if s >= 60:
+                return f"{s//60}分{s%60:02d}秒"
+            return f"{s}秒"
+        except:
+            return ""
+
+    def _sum_elapsed(tdf):
+        """計算一組答題的總秒數"""
+        if "答題秒數" not in tdf.columns:
+            return ""
+        try:
+            total = pd.to_numeric(tdf["答題秒數"], errors="coerce").fillna(0).sum()
+            return _fmt_elapsed(total)
+        except:
+            return ""
         """產生單一學生的報告行"""
         stu_ans = stu_ans.copy()
         stu_ans["_task"] = stu_ans["題目ID"].apply(lambda x: _get_task_for_stu(stu, x, all_stu_task))
@@ -738,16 +761,19 @@ with tab_report:
                 day_label = day
             lines.append(f"\n📅 {day_label}")
             for tname, tdf in day_df.groupby("_task"):
-                prac_tot = len(tdf[tdf["結果"] == "練習"])
-                test_df  = tdf[tdf["結果"].isin(["✅","❌"])]
-                test_ok  = len(test_df[test_df["結果"]=="✅"])
-                test_err = len(test_df[test_df["結果"]=="❌"])
-                test_tot = len(test_df)
+                prac_tot  = len(tdf[tdf["結果"] == "練習"])
+                test_df   = tdf[tdf["結果"].isin(["✅","❌"])]
+                test_ok   = len(test_df[test_df["結果"]=="✅"])
+                test_err  = len(test_df[test_df["結果"]=="❌"])
+                test_tot  = len(test_df)
+                elapsed   = _sum_elapsed(tdf)
                 lines.append(f"{tname}")
                 if test_tot > 0:
                     lines.append(f"  測驗：{test_tot}題　✅{test_ok}　❌{test_err}")
                 if prac_tot > 0:
                     lines.append(f"  練習：{prac_tot}題")
+                if elapsed:
+                    lines.append(f"  作答時間：{elapsed}")
         lines.append("")
         return lines
 
@@ -820,9 +846,11 @@ with tab_report:
                             test_ok  = len(test_df[test_df["結果"]=="✅"])
                             test_err = len(test_df[test_df["結果"]=="❌"])
                             test_tot = len(test_df)
+                            elapsed  = _sum_elapsed(pd.DataFrame(tdf))
                             summary  = f"{tname}"
                             if test_tot > 0: summary += f"　測驗{test_tot}題 ✅{test_ok} ❌{test_err}"
                             if prac_tot > 0: summary += f"　練習{prac_tot}題"
+                            if elapsed:      summary += f"　⏱{elapsed}"
                             with st.expander(summary, expanded=False):
                                 _render_detail(pd.DataFrame(tdf) if isinstance(tdf, dict) else tdf)
 
@@ -896,9 +924,11 @@ with tab_report:
                         test_ok  = len(test_df[test_df["結果"]=="✅"])
                         test_err = len(test_df[test_df["結果"]=="❌"])
                         test_tot = len(test_df)
+                        elapsed  = _sum_elapsed(pd.DataFrame(tdf))
                         summary  = f"{tname}"
                         if test_tot > 0: summary += f"　測驗{test_tot}題 ✅{test_ok} ❌{test_err}"
                         if prac_tot > 0: summary += f"　練習{prac_tot}題"
+                        if elapsed:      summary += f"　⏱{elapsed}"
                         with st.expander(summary, expanded=False):
                                 _render_detail(pd.DataFrame(tdf) if isinstance(tdf, dict) else tdf)
 
