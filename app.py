@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.85                                     ║
+# ║  dashboard.py  V1.86                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.85"
+DASHBOARD_VERSION = "1.86"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -655,7 +655,7 @@ with tab_report:
 
     # 折疊按鈕
     if _btn_c2.button("⬆️ 全部折疊", key="collapse_all", use_container_width=True):
-        st.session_state["rpt_expand_stu"] = {}
+        st.session_state["rpt_collapse_ver"] = st.session_state.get("rpt_collapse_ver", 0) + 1
         st.rerun()
 
     # 顯示學生清單
@@ -663,18 +663,18 @@ with tab_report:
         _from, _to = st.session_state.get("rpt_all_range", (rpt_from_str, rpt_to_str))
         _assign_json = st.session_state.get("rpt_assign_json", "[]")
         _all_stu_task = _build_all_stu_task_map(_assign_json)
-        if "rpt_expand_stu" not in st.session_state:
-            st.session_state["rpt_expand_stu"] = {}
+        _cv = st.session_state.get("rpt_collapse_ver", 0)
 
         for stu in students_all:
             sy = stu_sy_map.get(stu, "")
             stu_records = st.session_state["rpt_stu_data"].get(stu, [])
             stu_df = pd.DataFrame(stu_records)
             has_data = not stu_df.empty
-            label = f"【{stu}】{sy}" + (f"　📝{len(stu_df)}筆" if has_data else "　（本期無資料）")
-            expanded = st.session_state["rpt_expand_stu"].get(stu, False)
+            # 在 label 埋入不可見的版本號，讓 Streamlit 認為是新元件，強制 expanded=False
+            _invis = "\u200b" * _cv  # 零寬空白 × 版本號
+            label = f"【{stu}】{sy}{_invis}" + (f"　📝{len(stu_df)}筆" if has_data else "　（本期無資料）")
 
-            with st.expander(label, expanded=expanded):
+            with st.expander(label, expanded=False):
                 # 個別更新按鈕
                 _rc1, _rc2 = st.columns([5, 1])
                 _rc1.caption(f"{_from} ～ {_to}")
