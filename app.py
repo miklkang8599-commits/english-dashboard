@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.84                                     ║
+# ║  dashboard.py  V1.85                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.84"
+DASHBOARD_VERSION = "1.85"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -624,9 +624,10 @@ with tab_report:
         df_stu_rpt = df_stu_rpt[~df_stu_rpt["group_id"].isin(["ADMIN","TEACHER"])].sort_values("_sy", ascending=True)
         students_all = df_stu_rpt["name"].tolist()
 
-    # 全班更新按鈕
+    # 全班更新按鈕 + 全部折疊按鈕
     _auto_gen = "rpt_stu_data" not in st.session_state
-    if st.button("🔄 產生全班報告-即時更新", type="primary", key="gen_all") or _auto_gen:
+    _btn_c1, _btn_c2 = st.columns([3, 1])
+    if _btn_c1.button("🔄 產生全班報告-即時更新", type="primary", key="gen_all", use_container_width=True) or _auto_gen:
         load_assignments.clear()
         df_a_fresh = load_assignments()
         _assign_json = df_a_fresh.to_json(orient="records") if not df_a_fresh.empty else "[]"
@@ -652,11 +653,18 @@ with tab_report:
         st.session_state["rpt_stu_data"]  = stu_data
         st.session_state["rpt_all_range"] = (rpt_from_str, rpt_to_str)
 
+    # 折疊按鈕
+    if _btn_c2.button("⬆️ 全部折疊", key="collapse_all", use_container_width=True):
+        st.session_state["rpt_expand_stu"] = {}
+        st.rerun()
+
     # 顯示學生清單
     if "rpt_stu_data" in st.session_state:
         _from, _to = st.session_state.get("rpt_all_range", (rpt_from_str, rpt_to_str))
         _assign_json = st.session_state.get("rpt_assign_json", "[]")
         _all_stu_task = _build_all_stu_task_map(_assign_json)
+        if "rpt_expand_stu" not in st.session_state:
+            st.session_state["rpt_expand_stu"] = {}
 
         for stu in students_all:
             sy = stu_sy_map.get(stu, "")
@@ -664,8 +672,9 @@ with tab_report:
             stu_df = pd.DataFrame(stu_records)
             has_data = not stu_df.empty
             label = f"【{stu}】{sy}" + (f"　📝{len(stu_df)}筆" if has_data else "　（本期無資料）")
+            expanded = st.session_state["rpt_expand_stu"].get(stu, False)
 
-            with st.expander(label, expanded=False):
+            with st.expander(label, expanded=expanded):
                 # 個別更新按鈕
                 _rc1, _rc2 = st.columns([5, 1])
                 _rc1.caption(f"{_from} ～ {_to}")
