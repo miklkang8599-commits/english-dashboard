@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.86                                     ║
+# ║  dashboard.py  V1.87                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.86"
+DASHBOARD_VERSION = "1.87"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -670,9 +670,18 @@ with tab_report:
             stu_records = st.session_state["rpt_stu_data"].get(stu, [])
             stu_df = pd.DataFrame(stu_records)
             has_data = not stu_df.empty
-            # 在 label 埋入不可見的版本號，讓 Streamlit 認為是新元件，強制 expanded=False
-            _invis = "\u200b" * _cv  # 零寬空白 × 版本號
-            label = f"【{stu}】{sy}{_invis}" + (f"　📝{len(stu_df)}筆" if has_data else "　（本期無資料）")
+            if has_data and "_date" in stu_df.columns:
+                latest_date = stu_df["_date"].max()
+                try:
+                    dt = pd.to_datetime(latest_date)
+                    wd = _WEEKDAY_CN[dt.weekday()]
+                    latest_str = f"　最新：{latest_date[5:]}（{wd}）"
+                except:
+                    latest_str = f"　最新：{latest_date}"
+            else:
+                latest_str = ""
+            _invis = "\u200b" * _cv
+            label = f"【{stu}】{sy}{_invis}" + (f"　📝{len(stu_df)}筆{latest_str}" if has_data else "　（本期無資料）")
 
             with st.expander(label, expanded=False):
                 # 個別更新按鈕
