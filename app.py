@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.88                                     ║
+# ║  dashboard.py  V1.89                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.88"
+DASHBOARD_VERSION = "1.89"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -294,6 +294,14 @@ def _fmt_time_with_weekday(t_str):
         return dt.strftime(f"%m-%d({wd}) %H:%M:%S")
     except:
         return str(t_str)[:19]
+
+def _clean_task_name(name: str) -> str:
+    """去掉任務名稱第一個全形空格後的所有內容"""
+    s = str(name)
+    idx = s.find('\u3000')
+    if idx != -1:
+        s = s[:idx]
+    return s.strip()
 
 @st.cache_data(ttl=600)
 def build_question_lookup(qids: tuple) -> dict:
