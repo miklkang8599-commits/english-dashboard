@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 數據監控儀表板 (獨立版)              ║
-# ║  dashboard.py  V1.80                                     ║
+# ║  dashboard.py  V1.81                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.80"
+DASHBOARD_VERSION = "1.81"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -99,6 +99,30 @@ def load_logs():
         return pd.DataFrame()
     except Exception as e:
         st.error(f"載入 logs 失敗：{e}")
+        return pd.DataFrame()
+
+def load_logs_for_student(stu_name: str) -> pd.DataFrame:
+    """只撈單一學生的 logs，不用 cache，每次即時取得"""
+    try:
+        sb  = get_supabase()
+        all_logs = []
+        page = 0
+        while True:
+            res = sb.table("logs").select(
+                "created_at,name,group_id,question_id,result,student_answer,score,task_name,elapsed_sec"
+            ).eq("name", stu_name).order("created_at", desc=False).range(page*1000, (page+1)*1000-1).execute()
+            if not res.data:
+                break
+            all_logs.extend(res.data)
+            if len(res.data) < 1000:
+                break
+            page += 1
+        if all_logs:
+            df = pd.DataFrame(all_logs)
+            df = _to_cn(df, LOGS_COLS)
+            return df
+        return pd.DataFrame()
+    except Exception as e:
         return pd.DataFrame()
 
 @st.cache_data(ttl=600)
@@ -778,159 +802,144 @@ with tab_report:
         return lines
 
     # ════════════════════════════════════════════
-    # 區塊1：全班統計報告
+    # 統一學生報告（全班+個別更新）
     # ════════════════════════════════════════════
     with sec1:
-        st.caption("依學生列出各任務答題統計，可展開查看詳細清單")
-        _auto_gen = "rpt_all_data" not in st.session_state
-        if st.button("📋 產生全班報告-即時更新", type="primary", key="gen_all") or _auto_gen:
-            load_logs.clear()
-            load_assignments.clear()
-            df_l_fresh = load_logs()
-            df_a_fresh = load_assignments()
+        st.caption("依學生列出各任務答題統計，可展開查看詳細清單，每個學生可個別即時更新")
 
+        # 取得學生清單（含無資料的也列出）
+        df_stu_rpt = load_supabase_students()
+        stu_sy_map = {}
+        students_all = []
+        if not df_stu_rpt.empty and "name" in df_stu_rpt.columns:
+            stu_sy_map = {str(r["name"]): str(r.get("school_year","")) for _, r in df_stu_rpt.iterrows()}
+            df_stu_rpt["_sy"] = pd.to_numeric(df_stu_rpt.get("school_year", pd.Series()), errors="coerce")
+            df_stu_rpt = df_stu_rpt[~df_stu_rpt["group_id"].isin(["ADMIN","TEACHER"])].sort_values("_sy", ascending=True)
+            students_all = df_stu_rpt["name"].tolist()
+
+        # 全班更新按鈕
+        _auto_gen = "rpt_stu_data" not in st.session_state
+        if st.button("🔄 產生全班報告-即時更新", type="primary", key="gen_all") or _auto_gen:
+            load_assignments.clear()
+            df_a_fresh = load_assignments()
+            _assign_json = df_a_fresh.to_json(orient="records") if not df_a_fresh.empty else "[]"
+            _all_stu_task = _build_all_stu_task_map(_assign_json)
+            st.session_state["rpt_assign_json"] = _assign_json
+
+            # 全班一次撈
+            load_logs.clear()
+            df_l_fresh = load_logs()
             df_rpt = df_l_fresh.copy() if not df_l_fresh.empty else pd.DataFrame()
             if not df_rpt.empty and "時間" in df_rpt.columns:
                 df_rpt = df_rpt[(df_rpt["時間"].str[:10] >= rpt_from_str) & (df_rpt["時間"].str[:10] <= rpt_to_str)]
             df_rpt_ans = df_rpt[~df_rpt["結果"].str.contains("📖", na=False)] if not df_rpt.empty and "結果" in df_rpt.columns else pd.DataFrame()
 
-            _assign_json = df_a_fresh.to_json(orient="records") if not df_a_fresh.empty else "[]"
-            _all_stu_task = _build_all_stu_task_map(_assign_json)
-
-            df_stu_rpt = load_supabase_students()
-            stu_sy_map = {}
-            if not df_stu_rpt.empty and "name" in df_stu_rpt.columns and "school_year" in df_stu_rpt.columns:
-                stu_sy_map = {str(r["name"]): str(r["school_year"]) for _, r in df_stu_rpt.iterrows()}
-                df_stu_rpt["_sy"] = pd.to_numeric(df_stu_rpt["school_year"], errors="coerce")
-                df_stu_rpt = df_stu_rpt[~df_stu_rpt["group_id"].isin(["ADMIN","TEACHER"])].sort_values("_sy", ascending=True)
-                present = set(df_rpt_ans["姓名"].unique()) if not df_rpt_ans.empty else set()
-                students_all = [n for n in df_stu_rpt["name"].tolist() if n in present]
-                students_all += sorted([n for n in present if n not in set(students_all)])
-            else:
-                students_all = sorted(df_rpt_ans["姓名"].unique().tolist()) if not df_rpt_ans.empty else []
-
-            # 存結構化資料到 session_state
-            rpt_data = []
+            stu_data = {}
             for stu in students_all:
                 stu_ans = df_rpt_ans[df_rpt_ans["姓名"] == stu].copy() if not df_rpt_ans.empty else pd.DataFrame()
-                if stu_ans.empty: continue
-                stu_ans["_task"] = stu_ans["題目ID"].apply(lambda x: _get_task_for_stu(stu, x, _all_stu_task))
-                stu_ans = stu_ans[stu_ans["_task"] != ""]
-                if stu_ans.empty: continue
-                stu_ans["_date"] = stu_ans["時間"].str[:10]
-                rpt_data.append({"stu": stu, "sy": stu_sy_map.get(stu,""), "df": stu_ans.to_dict("records")})
-            st.session_state["rpt_all_data"] = rpt_data
+                if not stu_ans.empty:
+                    stu_ans["_task"] = stu_ans["題目ID"].apply(lambda x: _get_task_for_stu(stu, x, _all_stu_task))
+                    stu_ans = stu_ans[stu_ans["_task"] != ""]
+                    stu_ans["_date"] = stu_ans["時間"].str[:10]
+                stu_data[stu] = stu_ans.to_dict("records") if not stu_ans.empty else []
+            st.session_state["rpt_stu_data"]  = stu_data
             st.session_state["rpt_all_range"] = (rpt_from_str, rpt_to_str)
 
-        if st.session_state.get("rpt_all_data") is not None:
+        # 顯示學生清單
+        if "rpt_stu_data" in st.session_state:
             _from, _to = st.session_state.get("rpt_all_range", (rpt_from_str, rpt_to_str))
-            if not st.session_state["rpt_all_data"]:
-                st.info("無符合條件的資料")
-            for stu_block in st.session_state["rpt_all_data"]:
-                stu   = stu_block["stu"]
-                sy    = stu_block["sy"]
-                stu_df = pd.DataFrame(stu_block["df"])
-                with st.expander(f"【{stu}】{sy}", expanded=False):
-                    st.caption(f"{_from} ～ {_to}")
-                    for day in sorted(stu_df["_date"].unique(), reverse=True):
-                        day_df = stu_df[stu_df["_date"] == day]
-                        try:
-                            dt = pd.to_datetime(day)
-                            wd = ["一","二","三","四","五","六","日"][dt.weekday()]
-                            st.markdown(f"**📅 {day}（{wd}）**")
-                        except:
-                            st.markdown(f"**📅 {day}**")
-                        for tname, tdf in day_df.groupby("_task"):
-                            prac_tot = len(tdf[tdf["結果"] == "練習"])
-                            test_df  = tdf[tdf["結果"].isin(["✅","❌"])]
-                            test_ok  = len(test_df[test_df["結果"]=="✅"])
-                            test_err = len(test_df[test_df["結果"]=="❌"])
-                            test_tot = len(test_df)
-                            elapsed  = _sum_elapsed(pd.DataFrame(tdf))
-                            summary  = f"{tname}"
-                            if test_tot > 0: summary += f"　測驗{test_tot}題 ✅{test_ok} ❌{test_err}"
-                            if prac_tot > 0: summary += f"　練習{prac_tot}題"
-                            if elapsed:      summary += f"　⏱{elapsed}"
-                            with st.expander(summary, expanded=False):
-                                _render_detail(pd.DataFrame(tdf) if isinstance(tdf, dict) else tdf)
+            _assign_json = st.session_state.get("rpt_assign_json", "[]")
+            _all_stu_task = _build_all_stu_task_map(_assign_json)
+
+            for stu in students_all:
+                sy = stu_sy_map.get(stu, "")
+                stu_records = st.session_state["rpt_stu_data"].get(stu, [])
+                stu_df = pd.DataFrame(stu_records)
+                has_data = not stu_df.empty
+                label = f"【{stu}】{sy}" + (f"　📝{len(stu_df)}筆" if has_data else "　（本期無資料）")
+
+                with st.expander(label, expanded=False):
+                    # 個別更新按鈕
+                    _rc1, _rc2 = st.columns([5, 1])
+                    _rc1.caption(f"{_from} ～ {_to}")
+                    if _rc2.button("🔄 更新", key=f"stu_refresh_{stu}", use_container_width=True):
+                        # 只撈這位學生
+                        df_stu_fresh = load_logs_for_student(stu)
+                        df_stu_r = df_stu_fresh.copy() if not df_stu_fresh.empty else pd.DataFrame()
+                        if not df_stu_r.empty and "時間" in df_stu_r.columns:
+                            df_stu_r = df_stu_r[(df_stu_r["時間"].str[:10] >= rpt_from_str) & (df_stu_r["時間"].str[:10] <= rpt_to_str)]
+                        df_stu_ans = df_stu_r[~df_stu_r["結果"].str.contains("📖", na=False)] if not df_stu_r.empty and "結果" in df_stu_r.columns else pd.DataFrame()
+                        if not df_stu_ans.empty:
+                            df_stu_ans["_task"] = df_stu_ans["題目ID"].apply(lambda x: _get_task_for_stu(stu, x, _all_stu_task))
+                            df_stu_ans = df_stu_ans[df_stu_ans["_task"] != ""]
+                            df_stu_ans["_date"] = df_stu_ans["時間"].str[:10]
+                        st.session_state["rpt_stu_data"][stu] = df_stu_ans.to_dict("records") if not df_stu_ans.empty else []
+                        st.rerun()
+
+                    if not has_data:
+                        st.info("本期無答題資料")
+                    else:
+                        for day in sorted(stu_df["_date"].unique(), reverse=True):
+                            day_df = stu_df[stu_df["_date"] == day]
+                            try:
+                                dt = pd.to_datetime(day)
+                                wd = ["一","二","三","四","五","六","日"][dt.weekday()]
+                                st.markdown(f"**📅 {day}（{wd}）**")
+                            except:
+                                st.markdown(f"**📅 {day}**")
+                            for tname, tdf in day_df.groupby("_task"):
+                                prac_tot = len(tdf[tdf["結果"] == "練習"])
+                                test_df  = tdf[tdf["結果"].isin(["✅","❌"])]
+                                test_ok  = len(test_df[test_df["結果"]=="✅"])
+                                test_err = len(test_df[test_df["結果"]=="❌"])
+                                test_tot = len(test_df)
+                                elapsed  = _sum_elapsed(pd.DataFrame(tdf))
+                                summary  = f"{tname}"
+                                if test_tot > 0: summary += f"　測驗{test_tot}題 ✅{test_ok} ❌{test_err}"
+                                if prac_tot > 0: summary += f"　練習{prac_tot}題"
+                                if elapsed:      summary += f"　⏱{elapsed}"
+                                with st.expander(summary, expanded=False):
+                                    _render_detail(pd.DataFrame(tdf) if isinstance(tdf, dict) else tdf)
 
     # ════════════════════════════════════════════
-    # 區塊2：個別學生報告
+    # 區塊2：個別學生報告（保留供純文字複製用）
     # ════════════════════════════════════════════
     with sec2:
-        st.caption("選擇學生，列出每日任務答題明細")
+        st.caption("選擇學生產生可複製的純文字報告")
 
-        stu_opts_all = sorted(load_supabase_students()["name"].tolist()) if not load_supabase_students().empty and "name" in load_supabase_students().columns else []
-        stu_opts_all = [n for n in stu_opts_all if n not in ["ADMIN","TEACHER"]]
+        stu_opts_all = [n for n in students_all if n not in ["ADMIN","TEACHER"]] if students_all else []
 
         def _clear_one_report():
             st.session_state.pop("rpt_one_text", None)
-            st.session_state.pop("one_rpt_text", None)
+            st.session_state.pop("rpt_one_df", None)
 
         sel_stu = st.selectbox("選擇學生", stu_opts_all, key="rpt2_stu",
                                on_change=_clear_one_report) if stu_opts_all else None
 
         if sel_stu and st.button("📋 產生個人報告-即時更新", type="primary", key="gen_one"):
-            # 重新載入資料
-            load_logs.clear()
-            load_assignments.clear()
-            df_l_fresh = load_logs()
-            df_a_fresh = load_assignments()
-
-            # 篩選時間範圍
-            df_rpt = df_l_fresh.copy() if not df_l_fresh.empty else pd.DataFrame()
+            df_stu_fresh = load_logs_for_student(sel_stu)
+            df_rpt = df_stu_fresh.copy() if not df_stu_fresh.empty else pd.DataFrame()
             if not df_rpt.empty and "時間" in df_rpt.columns:
                 df_rpt = df_rpt[(df_rpt["時間"].str[:10] >= rpt_from_str) & (df_rpt["時間"].str[:10] <= rpt_to_str)]
             df_rpt_ans = df_rpt[~df_rpt["結果"].str.contains("📖", na=False)] if not df_rpt.empty and "結果" in df_rpt.columns else pd.DataFrame()
 
-            _assign_json = df_a_fresh.to_json(orient="records") if not df_a_fresh.empty else "[]"
+            _assign_json = st.session_state.get("rpt_assign_json", "[]")
+            if _assign_json == "[]":
+                df_a_fresh = load_assignments()
+                _assign_json = df_a_fresh.to_json(orient="records") if not df_a_fresh.empty else "[]"
             _all_stu_task = _build_all_stu_task_map(_assign_json)
 
-            stu_ans = df_rpt_ans[df_rpt_ans["姓名"] == sel_stu].copy() if not df_rpt_ans.empty else pd.DataFrame()
+            stu_ans = df_rpt_ans.copy() if not df_rpt_ans.empty else pd.DataFrame()
             df_stu_rpt2 = load_supabase_students()
             stu_sy_map2 = {str(r["name"]): str(r["school_year"]) for _, r in df_stu_rpt2.iterrows()} if not df_stu_rpt2.empty and "school_year" in df_stu_rpt2.columns else {}
 
             lines = _gen_report_lines(sel_stu, stu_ans, stu_sy_map2, _all_stu_task, rpt_from_str, rpt_to_str)
             st.session_state["rpt_one_text"] = "\n".join(lines) if lines else ""
-            # 也存結構化資料
-            if not stu_ans.empty:
-                stu_ans2 = stu_ans.copy()
-                stu_ans2["_task"] = stu_ans2["題目ID"].apply(lambda x: _get_task_for_stu(sel_stu, x, _all_stu_task))
-                stu_ans2 = stu_ans2[stu_ans2["_task"] != ""]
-                stu_ans2["_date"] = stu_ans2["時間"].str[:10]
-                st.session_state["rpt_one_df"] = stu_ans2.to_dict("records")
-            else:
-                st.session_state["rpt_one_df"] = []
-            st.session_state["rpt_one_range"] = (rpt_from_str, rpt_to_str)
 
-        if st.session_state.get("rpt_one_text") is not None:
-            _from1, _to1 = st.session_state.get("rpt_one_range", (rpt_from_str, rpt_to_str))
-            stu_df1 = pd.DataFrame(st.session_state.get("rpt_one_df", []))
-            if stu_df1.empty:
-                st.info("此時間範圍內無答題資料")
-            else:
-                st.caption(f"{_from1} ～ {_to1}")
-                for day in sorted(stu_df1["_date"].unique(), reverse=True):
-                    day_df = stu_df1[stu_df1["_date"] == day]
-                    try:
-                        dt = pd.to_datetime(day)
-                        wd = ["一","二","三","四","五","六","日"][dt.weekday()]
-                        st.markdown(f"**📅 {day}（{wd}）**")
-                    except:
-                        st.markdown(f"**📅 {day}**")
-                    for tname, tdf in day_df.groupby("_task"):
-                        prac_tot = len(tdf[tdf["結果"] == "練習"])
-                        test_df  = tdf[tdf["結果"].isin(["✅","❌"])]
-                        test_ok  = len(test_df[test_df["結果"]=="✅"])
-                        test_err = len(test_df[test_df["結果"]=="❌"])
-                        test_tot = len(test_df)
-                        elapsed  = _sum_elapsed(pd.DataFrame(tdf))
-                        summary  = f"{tname}"
-                        if test_tot > 0: summary += f"　測驗{test_tot}題 ✅{test_ok} ❌{test_err}"
-                        if prac_tot > 0: summary += f"　練習{prac_tot}題"
-                        if elapsed:      summary += f"　⏱{elapsed}"
-                        with st.expander(summary, expanded=False):
-                                _render_detail(pd.DataFrame(tdf) if isinstance(tdf, dict) else tdf)
+        if st.session_state.get("rpt_one_text"):
+            st.text_area("個人報告（可複製）", st.session_state["rpt_one_text"], height=400)
+        elif "rpt_one_text" in st.session_state:
+            st.info("此時間範圍內無答題資料")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
