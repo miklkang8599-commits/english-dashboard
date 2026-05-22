@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.87                                     ║
+# ║  dashboard.py  V1.88                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.87"
+DASHBOARD_VERSION = "1.88"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -411,7 +411,7 @@ st.caption(f"V{DASHBOARD_VERSION}　獨立版，直連 Supabase")
 st.divider()
 
 # ── Tab ───────────────────────────────────────────────────────────────────────
-tab_report, = st.tabs(["📋 全能英文學習報告"])
+tab_report, tab_tasks = st.tabs(["📋 全能英文學習報告", "📋 學生任務列表"])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab2：全能英文學習報告
@@ -732,5 +732,66 @@ with tab_report:
                                 _render_detail(pd.DataFrame(tdf) if isinstance(tdf, dict) else tdf)
 
 
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Tab2：學生任務列表
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_tasks:
+    t3c1, t3c2, t3c3 = st.columns([4, 1, 1])
+    if t3c3.button("🔄 更新", key="t3_refresh", use_container_width=True):
+        load_assignments.clear()
+        load_supabase_students.clear()
+        st.rerun()
+
+    df_a_t3   = load_assignments()
+    df_stu_t3 = load_supabase_students()
+    t3c2.caption(f"任務: {len(df_a_t3)} 個")
+
+    df_active = df_a_t3[df_a_t3["狀態"] == "進行中"].copy() if not df_a_t3.empty and "狀態" in df_a_t3.columns else pd.DataFrame()
+
+    if df_stu_t3.empty:
+        st.info("無學生資料")
+    elif df_active.empty:
+        st.info("目前沒有進行中的任務")
+    else:
+        def _get_active_tasks_for_student(stu_name):
+            tasks = []
+            for _, row in df_active.iterrows():
+                assigned = [s.strip() for s in str(row.get("指派學生","")).split(",") if s.strip()]
+                if stu_name in assigned:
+                    tname    = _clean_task_name(str(row.get("任務名稱","")))
+                    end_date = str(row.get("結束日期",""))[:10]
+                    task_type= str(row.get("類型",""))
+                    tasks.append({"任務名稱": tname, "類型": task_type, "結束日期": end_date})
+            return tasks
+
+        groups = sorted(df_stu_t3["group_id"].unique().tolist())
+        for grp in groups:
+            stu_in_grp = df_stu_t3[df_stu_t3["group_id"] == grp]["name"].tolist()
+            grp_has_tasks = any(_get_active_tasks_for_student(n) for n in stu_in_grp)
+            if not grp_has_tasks:
+                continue
+            st.markdown(f"#### 班級：{grp}")
+            for stu_name in stu_in_grp:
+                tasks = _get_active_tasks_for_student(stu_name)
+                if not tasks:
+                    continue
+                stu_row = df_stu_t3[df_stu_t3["name"] == stu_name].iloc[0] if not df_stu_t3[df_stu_t3["name"] == stu_name].empty else None
+                account = str(stu_row["account"]) if stu_row is not None and "account" in df_stu_t3.columns else ""
+                label   = f"{stu_name}（{account}）　📋 {len(tasks)} 個進行中任務"
+                with st.expander(label, expanded=False):
+                    df_t = pd.DataFrame(tasks)
+                    st.dataframe(
+                        df_t,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "任務名稱": st.column_config.TextColumn("任務名稱", width=None),
+                            "類型":     st.column_config.TextColumn("類型",     width=60),
+                            "結束日期": st.column_config.TextColumn("結束日期", width=80),
+                        }
+                    )
+
 st.divider()
-st.caption(f"英文全能練習系統 數據監控儀表板 V{DASHBOARD_VERSION}　© 2026")
+st.caption(f"英文全能練習系統 學習報告 V{DASHBOARD_VERSION}　© 2026")
