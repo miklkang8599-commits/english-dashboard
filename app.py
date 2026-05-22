@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.83                                     ║
+# ║  dashboard.py  V1.84                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.83"
+DASHBOARD_VERSION = "1.84"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -688,12 +688,17 @@ with tab_report:
                 else:
                     for day in sorted(stu_df["_date"].unique(), reverse=True):
                         day_df = stu_df[stu_df["_date"] == day]
+                        # 該日所有任務作答時間總和
+                        day_elapsed = _sum_elapsed(pd.DataFrame(day_df))
                         try:
                             dt = pd.to_datetime(day)
                             wd = ["一","二","三","四","五","六","日"][dt.weekday()]
-                            st.markdown(f"**📅 {day}（{wd}）**")
+                            day_label = f"**📅 {day}（{wd}）**"
                         except:
-                            st.markdown(f"**📅 {day}**")
+                            day_label = f"**📅 {day}**"
+                        if day_elapsed:
+                            day_label += f"　⏱ {day_elapsed}"
+                        st.markdown(day_label)
                         for tname, tdf in day_df.groupby("_task"):
                             prac_tot = len(tdf[tdf["結果"] == "練習"])
                             test_df  = tdf[tdf["結果"].isin(["✅","❌"])]
