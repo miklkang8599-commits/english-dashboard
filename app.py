@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.89                                     ║
+# ║  dashboard.py  V1.90                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -9,6 +9,7 @@ import re
 from datetime import date, datetime, timedelta
 from supabase import create_client, Client
 from streamlit_gsheets import GSheetsConnection
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(
     page_title="英文全能 — 學習報告",
@@ -16,8 +17,11 @@ st.set_page_config(
     layout="wide"
 )
 
+# 每4分鐘心跳一次，防止 session 閒置斷線
+st_autorefresh(interval=240000, limit=None, key="keepalive")
+
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.89"
+DASHBOARD_VERSION = "1.90"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
