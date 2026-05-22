@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.82                                     ║
+# ║  dashboard.py  V1.83                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.82"
+DASHBOARD_VERSION = "1.83"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -283,6 +283,17 @@ def _norm(x):
 def _try_int(s):
     try: int(float(s)); return True
     except: return False
+
+_WEEKDAY_CN = ["一","二","三","四","五","六","日"]
+
+def _fmt_time_with_weekday(t_str):
+    """把時間字串轉成 '04-16(三) 15:09:32'"""
+    try:
+        dt = pd.to_datetime(str(t_str)[:19])
+        wd = _WEEKDAY_CN[dt.weekday()]
+        return dt.strftime(f"%m-%d({wd}) %H:%M:%S")
+    except:
+        return str(t_str)[:19]
 
 @st.cache_data(ttl=600)
 def build_question_lookup(qids: tuple) -> dict:
