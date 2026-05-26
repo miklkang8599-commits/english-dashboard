@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.91                                     ║
+# ║  dashboard.py  V1.92                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -27,7 +27,7 @@ setInterval(function() {
 """, height=0)
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.91"
+DASHBOARD_VERSION = "1.92"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -688,14 +688,15 @@ with tab_report:
             stu_records = st.session_state["rpt_stu_data"].get(stu, [])
             stu_df = pd.DataFrame(stu_records)
             has_data = not stu_df.empty
-            if has_data and "_date" in stu_df.columns:
-                latest_date = stu_df["_date"].max()
+            if has_data and "時間" in stu_df.columns:
+                # 取最新一筆的完整時間
+                latest_time = stu_df["時間"].max()
                 try:
-                    dt = pd.to_datetime(latest_date)
+                    dt = pd.to_datetime(str(latest_time)[:19])
                     wd = _WEEKDAY_CN[dt.weekday()]
-                    latest_str = f"　最新：{latest_date[5:]}（{wd}）"
+                    latest_str = f"　最新：{dt.strftime(f'%m-%d({wd}) %H:%M:%S')}"
                 except:
-                    latest_str = f"　最新：{latest_date}"
+                    latest_str = f"　最新：{latest_time}"
             else:
                 latest_str = ""
             _invis = "\u200b" * _cv
@@ -706,7 +707,7 @@ with tab_report:
                 _rc1, _rc2 = st.columns([5, 1])
                 _rc1.caption(f"{_from} ～ {_to}")
                 if _rc2.button("🔄 更新", key=f"stu_refresh_{stu}", use_container_width=True):
-                    # 只撈這位學生
+                    # 只撈這位學生，不重跑整頁
                     df_stu_fresh = load_logs_for_student(stu)
                     df_stu_r = df_stu_fresh.copy() if not df_stu_fresh.empty else pd.DataFrame()
                     if not df_stu_r.empty and "時間" in df_stu_r.columns:
@@ -717,7 +718,9 @@ with tab_report:
                         df_stu_ans = df_stu_ans[df_stu_ans["_task"] != ""]
                         df_stu_ans["_date"] = df_stu_ans["時間"].str[:10]
                     st.session_state["rpt_stu_data"][stu] = df_stu_ans.to_dict("records") if not df_stu_ans.empty else []
-                    st.rerun()
+                    # 強制只重繪這個學生，不全頁 rerun
+                    stu_records = st.session_state["rpt_stu_data"][stu]
+                    stu_df = pd.DataFrame(stu_records)
 
                 if not has_data:
                     st.info("本期無答題資料")
