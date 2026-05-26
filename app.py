@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.94                                     ║
+# ║  dashboard.py  V1.95                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -27,7 +27,7 @@ setInterval(function() {
 """, height=0)
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.94"
+DASHBOARD_VERSION = "1.95"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -706,7 +706,25 @@ with tab_report:
                 _lc, _rc = st.columns([8, 1])
                 with _lc:
                     with st.expander(label, expanded=False):
-                        st.caption(f"{_from} ～ {_to}")
+                        # 更新按鈕放在 expander 裡面
+                        _ec1, _ec2 = st.columns([5, 1])
+                        _ec1.caption(f"{_from} ～ {_to}")
+                        if _ec2.button("🔄 更新", key=f"stu_refresh_{stu}_btn", use_container_width=True):
+                            df_stu_fresh = load_logs_for_student(stu)
+                            df_stu_r = df_stu_fresh.copy() if not df_stu_fresh.empty else pd.DataFrame()
+                            if not df_stu_r.empty and "時間" in df_stu_r.columns:
+                                df_stu_r = df_stu_r[(df_stu_r["時間"].str[:10] >= rpt_from_str) & (df_stu_r["時間"].str[:10] <= rpt_to_str)]
+                            df_stu_ans = df_stu_r[~df_stu_r["結果"].str.contains("📖", na=False)] if not df_stu_r.empty and "結果" in df_stu_r.columns else pd.DataFrame()
+                            if not df_stu_ans.empty:
+                                df_stu_ans["_task"] = df_stu_ans["題目ID"].apply(lambda x: _get_task_for_stu(stu, x, _all_stu_task))
+                                df_stu_ans = df_stu_ans[df_stu_ans["_task"] != ""]
+                                df_stu_ans["_date"] = df_stu_ans["時間"].str[:10]
+                            st.session_state["rpt_stu_data"][stu] = df_stu_ans.to_dict("records") if not df_stu_ans.empty else []
+                            # 更新後重新讀取資料
+                            stu_records = st.session_state["rpt_stu_data"].get(stu, [])
+                            stu_df = pd.DataFrame(stu_records)
+                            has_data = not stu_df.empty
+
                         if not has_data:
                             st.info("本期無答題資料")
                         else:
@@ -735,19 +753,8 @@ with tab_report:
                                     if elapsed:      summary += f"　⏱{elapsed}"
                                     with st.expander(summary, expanded=False):
                                         _render_detail(pd.DataFrame(tdf) if isinstance(tdf, dict) else tdf)
-
                 with _rc:
-                    if st.button("🔄", key=f"stu_refresh_{stu}_btn", help=f"更新 {stu}", use_container_width=True):
-                        df_stu_fresh = load_logs_for_student(stu)
-                        df_stu_r = df_stu_fresh.copy() if not df_stu_fresh.empty else pd.DataFrame()
-                        if not df_stu_r.empty and "時間" in df_stu_r.columns:
-                            df_stu_r = df_stu_r[(df_stu_r["時間"].str[:10] >= rpt_from_str) & (df_stu_r["時間"].str[:10] <= rpt_to_str)]
-                        df_stu_ans = df_stu_r[~df_stu_r["結果"].str.contains("📖", na=False)] if not df_stu_r.empty and "結果" in df_stu_r.columns else pd.DataFrame()
-                        if not df_stu_ans.empty:
-                            df_stu_ans["_task"] = df_stu_ans["題目ID"].apply(lambda x: _get_task_for_stu(stu, x, _all_stu_task))
-                            df_stu_ans = df_stu_ans[df_stu_ans["_task"] != ""]
-                            df_stu_ans["_date"] = df_stu_ans["時間"].str[:10]
-                        st.session_state["rpt_stu_data"][stu] = df_stu_ans.to_dict("records") if not df_stu_ans.empty else []
+                    pass  # 右欄保留版面平衡
 
             _student_fragment()
 
