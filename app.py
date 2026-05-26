@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.97                                     ║
+# ║  dashboard.py  V1.98                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -16,15 +16,16 @@ st.set_page_config(
     layout="wide"
 )
 
-# 每60秒靜默執行一次，防止 Streamlit session 閒置過期
-@st.fragment(run_every=60)
+# 每30秒心跳，防止 Streamlit session 閒置過期
+@st.fragment(run_every=30)
 def _keepalive():
-    pass
+    # 更新心跳時間戳，確保 session 保持活躍
+    st.session_state["_heartbeat"] = datetime.now().isoformat()
 
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.97"
+DASHBOARD_VERSION = "1.98"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -707,6 +708,12 @@ with tab_report:
                         _ec1, _ec2 = st.columns([5, 1])
                         _ec1.caption(f"{_from} ～ {_to}")
                         if _ec2.button("🔄 更新", key=f"stu_refresh_{stu}_btn", use_container_width=True):
+                            # 若 session 已過期，先重建 assign_json
+                            if "rpt_assign_json" not in st.session_state or st.session_state["rpt_assign_json"] == "[]":
+                                df_a_refresh = load_assignments()
+                                st.session_state["rpt_assign_json"] = df_a_refresh.to_json(orient="records") if not df_a_refresh.empty else "[]"
+                            if "rpt_stu_data" not in st.session_state:
+                                st.session_state["rpt_stu_data"] = {}
                             df_stu_fresh = load_logs_for_student(stu)
                             df_stu_r = df_stu_fresh.copy() if not df_stu_fresh.empty else pd.DataFrame()
                             if not df_stu_r.empty and "時間" in df_stu_r.columns:
