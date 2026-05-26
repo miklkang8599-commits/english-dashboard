@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.93                                     ║
+# ║  dashboard.py  V1.94                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -27,7 +27,7 @@ setInterval(function() {
 """, height=0)
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.93"
+DASHBOARD_VERSION = "1.94"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -684,68 +684,72 @@ with tab_report:
         _cv = st.session_state.get("rpt_collapse_ver", 0)
 
         def _render_student(stu, sy, _from, _to, rpt_from_str, rpt_to_str, _all_stu_task, _cv):
-            stu_records = st.session_state["rpt_stu_data"].get(stu, [])
-            stu_df = pd.DataFrame(stu_records)
-            has_data = not stu_df.empty
-            if has_data and "時間" in stu_df.columns:
-                latest_time = stu_df["時間"].max()
-                try:
-                    dt = pd.to_datetime(str(latest_time)[:19])
-                    wd = _WEEKDAY_CN[dt.weekday()]
-                    latest_str = f"　最新：{dt.strftime(f'%m-%d({wd}) %H:%M:%S')}"
-                except:
-                    latest_str = f"　最新：{latest_time}"
-            else:
-                latest_str = ""
-            _invis = "\u200b" * _cv
-            label = f"【{stu}】{sy}{_invis}" + (f"　📝{len(stu_df)}筆{latest_str}" if has_data else "　（本期無資料）")
 
-            # 更新按鈕放在 expander 外面，用兩欄並排
-            _lc, _rc = st.columns([8, 1])
-            with _lc:
-                with st.expander(label, expanded=False):
-                    st.caption(f"{_from} ～ {_to}")
-                    if not has_data:
-                        st.info("本期無答題資料")
-                    else:
-                        for day in sorted(stu_df["_date"].unique(), reverse=True):
-                            day_df = stu_df[stu_df["_date"] == day]
-                            day_elapsed = _sum_elapsed(pd.DataFrame(day_df))
-                            try:
-                                dt2 = pd.to_datetime(day)
-                                wd2 = _WEEKDAY_CN[dt2.weekday()]
-                                day_label = f"**📅 {day}（{wd2}）**"
-                            except:
-                                day_label = f"**📅 {day}**"
-                            if day_elapsed:
-                                day_label += f"　⏱ {day_elapsed}"
-                            st.markdown(day_label)
-                            for tname, tdf in day_df.groupby("_task"):
-                                prac_tot = len(tdf[tdf["結果"] == "練習"])
-                                test_df  = tdf[tdf["結果"].isin(["✅","❌"])]
-                                test_ok  = len(test_df[test_df["結果"]=="✅"])
-                                test_err = len(test_df[test_df["結果"]=="❌"])
-                                test_tot = len(test_df)
-                                elapsed  = _sum_elapsed(pd.DataFrame(tdf))
-                                summary  = f"{tname}"
-                                if test_tot > 0: summary += f"　測驗{test_tot}題 ✅{test_ok} ❌{test_err}"
-                                if prac_tot > 0: summary += f"　練習{prac_tot}題"
-                                if elapsed:      summary += f"　⏱{elapsed}"
-                                with st.expander(summary, expanded=False):
-                                    _render_detail(pd.DataFrame(tdf) if isinstance(tdf, dict) else tdf)
+            @st.fragment
+            def _student_fragment():
+                stu_records = st.session_state["rpt_stu_data"].get(stu, [])
+                stu_df = pd.DataFrame(stu_records)
+                has_data = not stu_df.empty
+                if has_data and "時間" in stu_df.columns:
+                    latest_time = stu_df["時間"].max()
+                    try:
+                        dt = pd.to_datetime(str(latest_time)[:19])
+                        wd = _WEEKDAY_CN[dt.weekday()]
+                        latest_str = f"　最新：{dt.strftime(f'%m-%d({wd}) %H:%M:%S')}"
+                    except:
+                        latest_str = f"　最新：{latest_time}"
+                else:
+                    latest_str = ""
+                _invis = "\u200b" * st.session_state.get("rpt_collapse_ver", 0)
+                label = f"【{stu}】{sy}{_invis}" + (f"　📝{len(stu_df)}筆{latest_str}" if has_data else "　（本期無資料）")
 
-            with _rc:
-                if st.button("🔄", key=f"stu_refresh_{stu}_btn", help=f"更新 {stu}", use_container_width=True):
-                    df_stu_fresh = load_logs_for_student(stu)
-                    df_stu_r = df_stu_fresh.copy() if not df_stu_fresh.empty else pd.DataFrame()
-                    if not df_stu_r.empty and "時間" in df_stu_r.columns:
-                        df_stu_r = df_stu_r[(df_stu_r["時間"].str[:10] >= rpt_from_str) & (df_stu_r["時間"].str[:10] <= rpt_to_str)]
-                    df_stu_ans = df_stu_r[~df_stu_r["結果"].str.contains("📖", na=False)] if not df_stu_r.empty and "結果" in df_stu_r.columns else pd.DataFrame()
-                    if not df_stu_ans.empty:
-                        df_stu_ans["_task"] = df_stu_ans["題目ID"].apply(lambda x: _get_task_for_stu(stu, x, _all_stu_task))
-                        df_stu_ans = df_stu_ans[df_stu_ans["_task"] != ""]
-                        df_stu_ans["_date"] = df_stu_ans["時間"].str[:10]
-                    st.session_state["rpt_stu_data"][stu] = df_stu_ans.to_dict("records") if not df_stu_ans.empty else []
+                _lc, _rc = st.columns([8, 1])
+                with _lc:
+                    with st.expander(label, expanded=False):
+                        st.caption(f"{_from} ～ {_to}")
+                        if not has_data:
+                            st.info("本期無答題資料")
+                        else:
+                            for day in sorted(stu_df["_date"].unique(), reverse=True):
+                                day_df = stu_df[stu_df["_date"] == day]
+                                day_elapsed = _sum_elapsed(pd.DataFrame(day_df))
+                                try:
+                                    dt2 = pd.to_datetime(day)
+                                    wd2 = _WEEKDAY_CN[dt2.weekday()]
+                                    day_label = f"**📅 {day}（{wd2}）**"
+                                except:
+                                    day_label = f"**📅 {day}**"
+                                if day_elapsed:
+                                    day_label += f"　⏱ {day_elapsed}"
+                                st.markdown(day_label)
+                                for tname, tdf in day_df.groupby("_task"):
+                                    prac_tot = len(tdf[tdf["結果"] == "練習"])
+                                    test_df  = tdf[tdf["結果"].isin(["✅","❌"])]
+                                    test_ok  = len(test_df[test_df["結果"]=="✅"])
+                                    test_err = len(test_df[test_df["結果"]=="❌"])
+                                    test_tot = len(test_df)
+                                    elapsed  = _sum_elapsed(pd.DataFrame(tdf))
+                                    summary  = f"{tname}"
+                                    if test_tot > 0: summary += f"　測驗{test_tot}題 ✅{test_ok} ❌{test_err}"
+                                    if prac_tot > 0: summary += f"　練習{prac_tot}題"
+                                    if elapsed:      summary += f"　⏱{elapsed}"
+                                    with st.expander(summary, expanded=False):
+                                        _render_detail(pd.DataFrame(tdf) if isinstance(tdf, dict) else tdf)
+
+                with _rc:
+                    if st.button("🔄", key=f"stu_refresh_{stu}_btn", help=f"更新 {stu}", use_container_width=True):
+                        df_stu_fresh = load_logs_for_student(stu)
+                        df_stu_r = df_stu_fresh.copy() if not df_stu_fresh.empty else pd.DataFrame()
+                        if not df_stu_r.empty and "時間" in df_stu_r.columns:
+                            df_stu_r = df_stu_r[(df_stu_r["時間"].str[:10] >= rpt_from_str) & (df_stu_r["時間"].str[:10] <= rpt_to_str)]
+                        df_stu_ans = df_stu_r[~df_stu_r["結果"].str.contains("📖", na=False)] if not df_stu_r.empty and "結果" in df_stu_r.columns else pd.DataFrame()
+                        if not df_stu_ans.empty:
+                            df_stu_ans["_task"] = df_stu_ans["題目ID"].apply(lambda x: _get_task_for_stu(stu, x, _all_stu_task))
+                            df_stu_ans = df_stu_ans[df_stu_ans["_task"] != ""]
+                            df_stu_ans["_date"] = df_stu_ans["時間"].str[:10]
+                        st.session_state["rpt_stu_data"][stu] = df_stu_ans.to_dict("records") if not df_stu_ans.empty else []
+
+            _student_fragment()
 
         for stu in students_all:
             sy = stu_sy_map.get(stu, "")
