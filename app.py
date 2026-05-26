@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.96                                     ║
+# ║  dashboard.py  V1.97                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -9,7 +9,6 @@ import re
 from datetime import date, datetime, timedelta
 from supabase import create_client, Client
 from streamlit_gsheets import GSheetsConnection
-import streamlit.components.v1 as components
 
 st.set_page_config(
     page_title="英文全能 — 學習報告",
@@ -17,17 +16,15 @@ st.set_page_config(
     layout="wide"
 )
 
-# 每30秒觸發 mousemove 事件，防止 session 閒置斷線
-components.html("""
-<script>
-setInterval(function() {
-    window.parent.document.dispatchEvent(new MouseEvent('mousemove'));
-}, 30000);
-</script>
-""", height=0)
+# 每60秒靜默執行一次，防止 Streamlit session 閒置過期
+@st.fragment(run_every=60)
+def _keepalive():
+    pass
+
+_keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.96"
+DASHBOARD_VERSION = "1.97"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
