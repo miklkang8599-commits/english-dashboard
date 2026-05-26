@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.95                                     ║
+# ║  dashboard.py  V1.96                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -27,7 +27,7 @@ setInterval(function() {
 """, height=0)
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.95"
+DASHBOARD_VERSION = "1.96"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -720,10 +720,7 @@ with tab_report:
                                 df_stu_ans = df_stu_ans[df_stu_ans["_task"] != ""]
                                 df_stu_ans["_date"] = df_stu_ans["時間"].str[:10]
                             st.session_state["rpt_stu_data"][stu] = df_stu_ans.to_dict("records") if not df_stu_ans.empty else []
-                            # 更新後重新讀取資料
-                            stu_records = st.session_state["rpt_stu_data"].get(stu, [])
-                            stu_df = pd.DataFrame(stu_records)
-                            has_data = not stu_df.empty
+                            st.rerun()
 
                         if not has_data:
                             st.info("本期無答題資料")
