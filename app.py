@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V1.98                                     ║
+# ║  dashboard.py  V1.99                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "1.98"
+DASHBOARD_VERSION = "1.99"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -167,6 +167,7 @@ _QTYPE_SHEETS = {
     "朗讀":    {"sheet": "朗讀",    "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "朗讀句子",        "answer": "",                "prefix": "R"},
     "拼單字":  {"sheet": "拼單字",  "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "中文意思",        "answer": "英文單字",        "prefix": "V"},
     "單字重組":{"sheet": "拼單字",  "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "中文意思",        "answer": "英文單字",        "prefix": "V"},
+    "歷屆大學":{"sheet": "拼單字",  "key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "中文意思",        "answer": "英文單字",        "prefix": "V"},
     "聽力音標":{"sheet": "聽力音標","key": ["版本","單元編號","組編號","符號編號"],           "content": "",               "answer": "KK符號",          "prefix": "LP"},
     "KK音選字":{"sheet": "聽力音標","key": ["版本","單元編號","組編號","符號編號"],           "content": "",               "answer": "KK符號",          "prefix": "LP"},
     "聽力重組":{"sheet": "聽力句子重組","key": ["版本","年度","冊編號","單元","課編號","句編號"], "content": "",            "answer": "聽力重組英文答案","prefix": "LS"},
@@ -184,18 +185,20 @@ def load_question_sheet(sheet_name: str) -> pd.DataFrame:
 
 def _parse_qid(qid: str):
     """
-    解析 question_id，格式來自 app.py：
+    解析 question_id，格式來自 app.py，固定結構（版本不含底線）：
       無前綴：版本_年度_冊編號_單元_課編號_句編號  (重組/單選/對話重組/閱讀重組等)
       R_    ：R_版本_年度_冊編號_單元_課編號_句編號 (朗讀)
       RM_   ：RM_版本_年度_冊編號_單元_課編號_句編號 (閱讀單句)
-      V_    ：V_版本_年度_冊編號_單元_課編號_句編號  (拼單字/單字重組)
+      V_    ：V_版本_年度_冊編號_單元_課編號_句編號  (拼單字/單字重組/歷屆大學等)
       LS_   ：LS_版本_年度_冊編號_單元_課編號_句編號 (聽力重組)
       LP_   ：LP_版本_單元編號_組編號_符號編號       (聽力音標)
+    注意：版本欄位可能含空格（如 'wonder world'），但不含底線；
+          冊編號可能是字母（如 'A'）；課編號可能是日期格式（如 '01-10'）。
+    採固定位置拆解，不依賴猜測數字/文字。
     """
     s     = str(qid).strip()
     parts = s.split("_")
 
-    # 前綴對應題型
     prefix_to_type = {
         "R":  "朗讀",
         "RM": "閱讀單句",
@@ -204,89 +207,60 @@ def _parse_qid(qid: str):
         "LP": "聽力音標",
     }
 
-    # 抽出前綴
     prefix = ""
     body   = parts
-    if parts[0] in prefix_to_type:
+    if parts and parts[0] in prefix_to_type:
         prefix = parts[0]
         body   = parts[1:]
 
-    # LP 聽力音標：LP_版本_單元編號_組編號_符號編號
+    # LP 聽力音標：[版本, 單元編號, 組編號, 符號編號]
     if prefix == "LP":
         ver    = body[0] if len(body) > 0 else ""
         unit_n = body[1] if len(body) > 1 else ""
         grp_n  = body[2] if len(body) > 2 else ""
         sym_n  = body[3] if len(body) > 3 else ""
         return {"版本": ver, "單元編號": unit_n, "組編號": grp_n,
-                "符號編號": sym_n, "題型": ver}  # 版本欄=題型名(如KK音選字)
+                "符號編號": sym_n, "題型": ver}
 
-    # 一般格式：版本_年度_冊編號_單元_課編號_句編號
-    # body = [版本, 年度, 冊編號, 單元, 課編號, 句編號]
-    # 版本可能含空格如 "wonder world" → 已被 _ 分割
-    # 策略：從尾端取句編號、課編號（數字），往前找單元（非數字），再往前找冊（數字）、年度（3位數字）、其餘=版本
-
-    # 從尾端開始拆
-    rev = list(reversed(body))
-    sent   = rev[0] if len(rev) > 0 and _try_int(rev[0]) else ""
-    course = rev[1] if len(rev) > 1 and _try_int(rev[1]) else ""
-
-    # 找單元：往後第一個非數字
-    unit_val = ""
-    unit_idx = -1
-    for i in range(2, len(rev)):
-        if not _try_int(rev[i]):
-            unit_val = rev[i]
-            unit_idx = i
-            break
-
-    # 找冊號：單元之後第一個數字
-    册号 = ""
-    nendo = ""
-    ver_parts = []
-    if unit_idx >= 0:
-        after_unit = rev[unit_idx+1:]
-        nums_after = [p for p in after_unit if _try_int(p)]
-        non_nums   = [p for p in after_unit if not _try_int(p)]
-        ver_parts  = list(reversed(non_nums))
-        if len(nums_after) >= 2:
-            nendo = nums_after[1]  # 年度（較大）
-            册号  = nums_after[0]  # 冊號
-        elif len(nums_after) == 1:
-            n = nums_after[0]
-            if len(n) >= 3:
-                nendo = n
-            else:
-                册号 = n
+    # 一般格式固定 6 個位置：[版本, 年度, 冊編號, 單元, 課編號, 句編號]
+    if len(body) < 6:
+        # 容錯：位置不足時退回舊邏輯（極少數情況）
+        if len(body) == 0:
+            return None
+        version, nendo, vol, unit_val, course, sent = (body + [""]*6)[:6]
     else:
-        # 沒找到單元，用全部
-        all_nums  = [p for p in body if _try_int(p)]
-        ver_parts = [p for p in body if not _try_int(p)]
-        nendo = all_nums[0] if len(all_nums) > 0 and len(all_nums[0]) >= 3 else ""
-        册号  = all_nums[1] if len(all_nums) > 1 else ""
+        # 若超過6個位置，代表版本內含底線，最前面多出的都算版本一部分
+        extra = len(body) - 6
+        version = "_".join(body[:1+extra])
+        nendo, vol, unit_val, course, sent = body[1+extra:6+extra]
 
-    version = "_".join(ver_parts)
     version = re.sub(r'^[A-Za-z]_', '', version)
     version = version.replace('ㄧ', '一')
 
-    # 題型：有前綴用前綴對應，否則用單元名稱找
     if prefix:
         qtype = prefix_to_type[prefix]
-        # 修正：若 qtype=拼單字 但單元是單字重組，維持單字重組題型
         if unit_val in _QTYPE_SHEETS:
             qtype = unit_val
     else:
-        # 無前綴：單元名稱就是題型
         qtype = unit_val if unit_val in _QTYPE_SHEETS else None
         if not qtype:
             return None
 
-    return {"版本": version, "年度": nendo, "冊編號": 册号,
+    return {"版本": version, "年度": nendo, "冊編號": vol,
             "單元": unit_val, "課編號": course, "句編號": sent, "題型": qtype}
+
 
 def _norm(x):
     s = str(x).strip()
-    try: return str(int(float(s)))
-    except: return s
+    try:
+        return str(int(float(s)))
+    except:
+        pass
+    # 處理日期格式：把完整日期正規化為 MM-DD 以便和 question_id 比對
+    m = re.match(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})', s)
+    if m:
+        return f"{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    return s
 
 def _try_int(s):
     try: int(float(s)); return True
