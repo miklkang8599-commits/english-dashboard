@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.00                                     ║
+# ║  dashboard.py  V2.01                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.00"
+DASHBOARD_VERSION = "2.01"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -377,30 +377,192 @@ def build_question_lookup(qids: tuple) -> dict:
 if 'dash_logged_in' not in st.session_state:
     st.session_state['dash_logged_in'] = False
 
-if not st.session_state['dash_logged_in']:
-    st.title("📊 英文練習 — 數據監控")
+def _login_check(account: str, password: str):
+    """
+    回傳 (role, name, group_id) 或 None
+    role: 'admin' | 'teacher' | 'student'
+    """
+    # 先檢查 Admin 密碼
+    admin_pwd = st.secrets.get("ADMIN_PASSWORD", "admin123")
+    if password == admin_pwd:
+        return ("admin", "管理員", "ADMIN")
+    # 再查 Supabase students 表
+    try:
+        sb  = get_supabase()
+        res = sb.table("students").select("name,account,password,group_id").eq("account", account).execute()
+        if res.data:
+            row = res.data[0]
+            if str(row.get("password","")) == str(password):
+                grp = str(row.get("group_id",""))
+                role = "teacher" if grp in ["ADMIN","TEACHER"] else "student"
+                return (role, str(row.get("name","")), grp)
+    except:
+        pass
+    return None
+
+if not st.session_state.get('dash_logged_in'):
+    st.title("📚 英文全能練習系統")
     col1, col2, col3 = st.columns([1,1,1])
     with col2:
         st.markdown("### 🔐 請登入")
         with st.form("login_form"):
-            pwd = st.text_input("密碼", type="password", key="dash_pwd")
+            account = st.text_input("帳號", key="dash_account")
+            pwd     = st.text_input("密碼", type="password", key="dash_pwd")
             submitted = st.form_submit_button("登入", use_container_width=True, type="primary")
             if submitted:
-                admin_pwd = st.secrets.get("ADMIN_PASSWORD", "admin123")
-                if pwd == admin_pwd:
+                result = _login_check(account.strip(), pwd.strip())
+                if result:
+                    role, name, grp = result
                     st.session_state['dash_logged_in'] = True
+                    st.session_state['dash_role']      = role
+                    st.session_state['dash_name']      = name
+                    st.session_state['dash_group']     = grp
                     st.rerun()
                 else:
-                    st.error("密碼錯誤")
+                    st.error("帳號或密碼錯誤")
     st.stop()
 
 # ── 主介面 ────────────────────────────────────────────────────────────────────
-st.title("📊 英文全能練習系統 — 數據監控儀表板")
-st.caption(f"V{DASHBOARD_VERSION}　獨立版，直連 Supabase")
+_role  = st.session_state.get('dash_role', 'admin')
+_name  = st.session_state.get('dash_name', '')
+_group = st.session_state.get('dash_group', '')
+
+_hc1, _hc2 = st.columns([5, 1])
+_hc1.title("📚 英文全能練習系統")
+_hc1.caption(f"V{DASHBOARD_VERSION}　{'👤 ' + _name if _name else ''}")
+if _hc2.button("登出", key="logout_btn"):
+    for k in ['dash_logged_in','dash_role','dash_name','dash_group',
+              'rpt_stu_data','rpt_assign_json','rpt_all_range','rpt_collapse_ver']:
+        st.session_state.pop(k, None)
+    st.rerun()
 
 st.divider()
 
-# ── Tab ───────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# 學生視角：只看自己
+# ══════════════════════════════════════════════════════════════════════════════
+if _role == "student":
+    st.subheader(f"📋 {_name} 的學習紀錄")
+
+    tab_stu_rpt, tab_stu_task = st.tabs(["📊 我的學習報告", "📋 我的任務列表"])
+
+    with tab_stu_rpt:
+        # 時間選擇
+        PERIODS_STU = ["今日", "昨天", "前天", "三天", "七天", "30天"]
+        if "stu_period" not in st.session_state:
+            st.session_state["stu_period"] = "七天"
+        _sp_cols = st.columns(len(PERIODS_STU))
+        for _i, _p in enumerate(PERIODS_STU):
+            if _sp_cols[_i].button(_p, key=f"stu_p_{_p}",
+                                   type="primary" if st.session_state["stu_period"]==_p else "secondary",
+                                   use_container_width=True):
+                st.session_state["stu_period"] = _p
+                st.rerun()
+        _today = date.today()
+        _stu_d_map = {
+            "今日": (_today, _today),
+            "昨天": (_today-timedelta(days=1), _today-timedelta(days=1)),
+            "前天": (_today-timedelta(days=2), _today-timedelta(days=2)),
+            "三天": (_today-timedelta(days=2), _today),
+            "七天": (_today-timedelta(days=6), _today),
+            "30天": (_today-timedelta(days=29), _today),
+        }
+        _stu_from, _stu_to = _stu_d_map.get(st.session_state["stu_period"], (_today, _today))
+        _stu_from_str = _stu_from.strftime("%Y-%m-%d")
+        _stu_to_str   = _stu_to.strftime("%Y-%m-%d")
+
+        if st.button("🔄 更新我的資料", type="primary", key="stu_refresh_main"):
+            df_stu_mine = load_logs_for_student(_name)
+            df_mine = df_stu_mine.copy() if not df_stu_mine.empty else pd.DataFrame()
+            if not df_mine.empty and "時間" in df_mine.columns:
+                df_mine = df_mine[(df_mine["時間"].str[:10] >= _stu_from_str) & (df_mine["時間"].str[:10] <= _stu_to_str)]
+            df_mine_ans = df_mine[~df_mine["結果"].str.contains("📖", na=False)] if not df_mine.empty and "結果" in df_mine.columns else pd.DataFrame()
+            df_a_mine = load_assignments()
+            _aj = df_a_mine.to_json(orient="records") if not df_a_mine.empty else "[]"
+
+            @st.cache_data(ttl=600)
+            def _build_mine_task_map(aj):
+                import json
+                rows = json.loads(aj)
+                m = {}
+                for row in rows:
+                    tname = row.get("任務名稱","")
+                    r2 = re.search(r'-20\d{2}-\d{2}-\d{2}[_\-]', tname)
+                    if r2: tname = tname[:r2.start()].strip()
+                    for q in str(row.get("題目ID清單","")).split(","):
+                        q = q.strip()
+                        if q:
+                            q2 = re.sub(r'^[A-Za-z]_','',q)
+                            m[q] = tname; m[q2] = tname
+                return m
+
+            _qtask = _build_mine_task_map(_aj)
+            if not df_mine_ans.empty:
+                df_mine_ans["_task"] = df_mine_ans["題目ID"].apply(lambda x: _qtask.get(str(x).strip(), _qtask.get(re.sub(r'^[A-Za-z]_','',str(x).strip()), "")))
+                df_mine_ans = df_mine_ans[df_mine_ans["_task"] != ""]
+                df_mine_ans["_date"] = df_mine_ans["時間"].str[:10]
+            st.session_state["stu_mine_df"] = df_mine_ans.to_dict("records") if not df_mine_ans.empty else []
+            st.session_state["stu_mine_range"] = (_stu_from_str, _stu_to_str)
+
+        if "stu_mine_df" in st.session_state:
+            _mf, _mt = st.session_state.get("stu_mine_range", (_stu_from_str, _stu_to_str))
+            st.caption(f"📅 {_mf} ～ {_mt}")
+            mine_df = pd.DataFrame(st.session_state["stu_mine_df"])
+            if mine_df.empty:
+                st.info("此時間範圍內無答題資料")
+            else:
+                for day in sorted(mine_df["_date"].unique(), reverse=True):
+                    day_df = mine_df[mine_df["_date"] == day]
+                    day_elapsed = _sum_elapsed(pd.DataFrame(day_df))
+                    try:
+                        dt2 = pd.to_datetime(day)
+                        wd2 = _WEEKDAY_CN[dt2.weekday()]
+                        day_label = f"**📅 {day}（{wd2}）**"
+                    except:
+                        day_label = f"**📅 {day}**"
+                    if day_elapsed: day_label += f"　⏱ {day_elapsed}"
+                    st.markdown(day_label)
+                    for tname, tdf in day_df.groupby("_task"):
+                        prac_tot = len(tdf[tdf["結果"]=="練習"])
+                        test_df  = tdf[tdf["結果"].isin(["✅","❌"])]
+                        test_ok  = len(test_df[test_df["結果"]=="✅"])
+                        test_err = len(test_df[test_df["結果"]=="❌"])
+                        test_tot = len(test_df)
+                        elapsed  = _sum_elapsed(pd.DataFrame(tdf))
+                        summary  = f"{tname}"
+                        if test_tot > 0: summary += f"　測驗{test_tot}題 ✅{test_ok} ❌{test_err}"
+                        if prac_tot > 0: summary += f"　練習{prac_tot}題"
+                        if elapsed:      summary += f"　⏱{elapsed}"
+                        with st.expander(summary, expanded=False):
+                            _render_detail(pd.DataFrame(tdf) if isinstance(tdf, dict) else tdf)
+
+    with tab_stu_task:
+        df_a_task = load_assignments()
+        df_active_stu = df_a_task[df_a_task["狀態"] == "進行中"].copy() if not df_a_task.empty and "狀態" in df_a_task.columns else pd.DataFrame()
+        if df_active_stu.empty:
+            st.info("目前沒有進行中的任務")
+        else:
+            tasks_mine = []
+            for _, row in df_active_stu.iterrows():
+                assigned = [s.strip() for s in str(row.get("指派學生","")).split(",") if s.strip()]
+                if _name in assigned:
+                    tasks_mine.append({
+                        "任務名稱": _clean_task_name(str(row.get("任務名稱",""))),
+                        "類型":     str(row.get("類型","")),
+                        "結束日期": str(row.get("結束日期",""))[:10],
+                    })
+            if tasks_mine:
+                st.dataframe(pd.DataFrame(tasks_mine), use_container_width=True, hide_index=True,
+                             column_config={
+                                 "任務名稱": st.column_config.TextColumn("任務名稱", width=None),
+                                 "類型":     st.column_config.TextColumn("類型",     width=60),
+                                 "結束日期": st.column_config.TextColumn("結束日期", width=80),
+                             })
+            else:
+                st.info("目前沒有指派給你的進行中任務")
+    st.stop()
+
+# ── Tab（教師/Admin 視角：全班）──────────────────────────────────────────────
 tab_report, tab_tasks = st.tabs(["📋 全能英文學習報告", "📋 學生任務列表"])
 
 # ══════════════════════════════════════════════════════════════════════════════
