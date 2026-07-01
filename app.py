@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.01                                     ║
+# ║  dashboard.py  V2.02                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.01"
+DASHBOARD_VERSION = "2.02"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -262,9 +262,56 @@ def _norm(x):
         return f"{int(m.group(2)):02d}-{int(m.group(3)):02d}"
     return s
 
-def _try_int(s):
-    try: int(float(s)); return True
-    except: return False
+def _fmt_elapsed(sec_val):
+    """把秒數格式化為 m:ss 或 ss秒"""
+    try:
+        s = int(float(str(sec_val)))
+        if s <= 0: return ""
+        if s >= 60:
+            return f"{s//60}分{s%60:02d}秒"
+        return f"{s}秒"
+    except:
+        return ""
+
+def _sum_elapsed(tdf):
+    """計算一組答題的總秒數"""
+    if "答題秒數" not in tdf.columns:
+        return ""
+    try:
+        total = pd.to_numeric(tdf["答題秒數"], errors="coerce").fillna(0).sum()
+        return _fmt_elapsed(total)
+    except:
+        return ""
+
+def _render_detail(tdf):
+    """顯示詳細答題清單，格式同數據監控"""
+    detail = tdf.copy().reset_index(drop=True)
+    detail = detail.fillna("").astype(str)
+    if "時間" in detail.columns:
+        try:
+            detail = detail.sort_values("時間", ascending=False).reset_index(drop=True)
+        except:
+            pass
+    if "時間" in detail.columns:
+        detail["時間"] = detail["時間"].apply(_fmt_time_with_weekday)
+    if "學生答案" in detail.columns:
+        detail["學生答案"] = detail["學生答案"].str.lower()
+    if "題目ID" in detail.columns:
+        orig_qids = detail["題目ID"].tolist()
+        q_lookup  = build_question_lookup(tuple(set(orig_qids)))
+        detail["正確答案"] = [q_lookup.get(q, {}).get("答案", "") for q in orig_qids]
+        detail["題目ID"]   = [q_lookup.get(q, {}).get("題目", q) for q in orig_qids]
+    if "答題秒數" in detail.columns:
+        detail["答題時間"] = detail["答題秒數"].apply(_fmt_elapsed)
+    ordered = [c for c in ["時間","題目ID","結果","學生答案","正確答案","答題時間"] if c in detail.columns]
+    col_cfg_d = {}
+    if "時間"     in detail.columns: col_cfg_d["時間"]     = st.column_config.TextColumn("時間",     width=70)
+    if "結果"     in detail.columns: col_cfg_d["結果"]     = st.column_config.TextColumn("結果",     width=30)
+    if "學生答案" in detail.columns: col_cfg_d["學生答案"] = st.column_config.TextColumn("學生答案", width=30)
+    if "正確答案" in detail.columns: col_cfg_d["正確答案"] = st.column_config.TextColumn("正確答案", width=30)
+    if "題目ID"   in detail.columns: col_cfg_d["題目ID"]   = st.column_config.TextColumn("題目",     width=None)
+    if "答題時間" in detail.columns: col_cfg_d["答題時間"] = st.column_config.TextColumn("答題時間", width=60)
+    st.dataframe(detail[ordered], use_container_width=True, hide_index=True, column_config=col_cfg_d)
 
 _WEEKDAY_CN = ["一","二","三","四","五","六","日"]
 
@@ -675,57 +722,7 @@ with tab_report:
         q2 = re.sub(r'^[A-Za-z]_', '', q)
         return m.get(q, m.get(q2, ""))
 
-    def _render_detail(tdf):
-        """顯示詳細答題清單，格式同數據監控"""
-        detail = tdf.copy().reset_index(drop=True)
-        detail = detail.fillna("").astype(str)
-        # 按時間降冪排列
-        if "時間" in detail.columns:
-            try:
-                detail = detail.sort_values("時間", ascending=False).reset_index(drop=True)
-            except:
-                pass
-        if "時間" in detail.columns:
-            detail["時間"] = detail["時間"].apply(_fmt_time_with_weekday)
-        if "學生答案" in detail.columns:
-            detail["學生答案"] = detail["學生答案"].str.lower()
-        if "題目ID" in detail.columns:
-            orig_qids = detail["題目ID"].tolist()
-            q_lookup  = build_question_lookup(tuple(set(orig_qids)))
-            detail["正確答案"] = [q_lookup.get(q, {}).get("答案", "") for q in orig_qids]
-            detail["題目ID"]   = [q_lookup.get(q, {}).get("題目", q) for q in orig_qids]
-        if "答題秒數" in detail.columns:
-            detail["答題時間"] = detail["答題秒數"].apply(_fmt_elapsed)
-        ordered = [c for c in ["時間","題目ID","結果","學生答案","正確答案","答題時間"] if c in detail.columns]
-        col_cfg_d = {}
-        if "時間"     in detail.columns: col_cfg_d["時間"]     = st.column_config.TextColumn("時間",     width=70)
-        if "結果"     in detail.columns: col_cfg_d["結果"]     = st.column_config.TextColumn("結果",     width=30)
-        if "學生答案" in detail.columns: col_cfg_d["學生答案"] = st.column_config.TextColumn("學生答案", width=30)
-        if "正確答案" in detail.columns: col_cfg_d["正確答案"] = st.column_config.TextColumn("正確答案", width=30)
-        if "題目ID"   in detail.columns: col_cfg_d["題目ID"]   = st.column_config.TextColumn("題目",     width=None)
-        if "答題時間" in detail.columns: col_cfg_d["答題時間"] = st.column_config.TextColumn("答題時間", width=60)
-        st.dataframe(detail[ordered], use_container_width=True, hide_index=True, column_config=col_cfg_d)
-
-    def _fmt_elapsed(sec_val):
-        """把秒數格式化為 m:ss 或 ss秒"""
-        try:
-            s = int(float(str(sec_val)))
-            if s <= 0: return ""
-            if s >= 60:
-                return f"{s//60}分{s%60:02d}秒"
-            return f"{s}秒"
-        except:
-            return ""
-
-    def _sum_elapsed(tdf):
-        """計算一組答題的總秒數"""
-        if "答題秒數" not in tdf.columns:
-            return ""
-        try:
-            total = pd.to_numeric(tdf["答題秒數"], errors="coerce").fillna(0).sum()
-            return _fmt_elapsed(total)
-        except:
-            return ""
+    def _gen_report_lines(stu, stu_ans, stu_sy_map, all_stu_task, from_str, to_str):
         """產生單一學生的報告行"""
         stu_ans = stu_ans.copy()
         stu_ans["_task"] = stu_ans["題目ID"].apply(lambda x: _get_task_for_stu(stu, x, all_stu_task))
