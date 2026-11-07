@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.04                                     ║
+# ║  dashboard.py  V2.05                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.04"
+DASHBOARD_VERSION = "2.05"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -475,29 +475,6 @@ def _session_summary(s: dict) -> str:
     if stt["elapsed"]: txt += f"　⏱{stt['elapsed']}"
     return txt
 
-def _render_latest_session(s: dict):
-    """置頂：本次（最新一次）作答報告"""
-    stt = _session_stats(s["df"])
-    with st.container(border=True):
-        st.markdown("#### 🆕 本次作答報告")
-        st.markdown(f"**{s['task']}**")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("作答開始時間", _fmt_ts(s["start"]))
-        c2.metric("練習方式", s["mode"])
-        c3.metric("作答時間", stt["elapsed"] or "—")
-        c4, c5, c6, c7 = st.columns(4)
-        c4.metric("作答題數", stt["total"])
-        if stt["test"]:
-            c5.metric("✅ 答對", stt["ok"])
-            c6.metric("❌ 答錯", stt["err"])
-            c7.metric("正確率", stt["rate"])
-        else:
-            c5.metric("🏋️ 練習題數", stt["prac"])
-            c6.metric("最後作答", _fmt_ts(s["end"], with_date=False))
-        st.caption(f"最後作答：{_fmt_ts(s['end'])}")
-        with st.expander("查看本次作答明細", expanded=False):
-            _render_detail(s["df"])
-
 @st.cache_data(ttl=600)
 def build_question_lookup(qids: tuple) -> dict:
     """給定一組 question_id，回傳 {qid: {'題目': ..., '答案': ...}} 字典"""
@@ -720,8 +697,6 @@ if _role == "student":
                 st.info("此時間範圍內無答題資料")
                 return
 
-            # 置頂：本次（最新一次）作答
-            _render_latest_session(sessions[0])
             if st.session_state.get("_no_session_cols"):
                 st.caption("ℹ️ 資料庫尚未新增「練習方式／開始時間」欄位，目前依作答時間自動分組，練習方式為推測。")
 
@@ -738,7 +713,7 @@ if _role == "student":
                     if _day_el:
                         _lbl += f"　⏱ {_day_el}"
                     st.markdown(_lbl)
-                _summary = ("🆕 " if i == 0 else "") + _session_summary(s)
+                _summary = _session_summary(s)
                 with st.expander(_summary, expanded=False):
                     _render_detail(s["df"])
 
