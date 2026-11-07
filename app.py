@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.03                                     ║
+# ║  dashboard.py  V2.04                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,14 +25,17 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.03"
+DASHBOARD_VERSION = "2.04"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
     "question_id": "題目ID", "result": "結果",
     "student_answer": "學生答案", "score": "分數", "task_name": "任務名稱",
-    "elapsed_sec": "答題秒數"
+    "elapsed_sec": "答題秒數",
+    "practice_mode": "練習方式", "session_start": "開始時間",   # V2.04（app V2.9.540 起寫入）
 }
+_LOG_BASE_FIELDS  = "created_at,name,group_id,question_id,result,student_answer,score,task_name,elapsed_sec"
+_LOG_EXTRA_FIELDS = "practice_mode,session_start"
 ASSIGN_COLS = {
     "created_at": "建立時間", "task_name": "任務名稱",
     "target_group": "對象班級", "assigned_students": "指派學生",
@@ -109,22 +112,38 @@ def load_logs():
         st.error(f"載入 logs 失敗：{e}")
         return pd.DataFrame()
 
-def load_logs_for_student(stu_name: str) -> pd.DataFrame:
-    """只撈單一學生的 logs，不用 cache，每次即時取得"""
-    try:
+def load_logs_for_student(stu_name: str, date_from: str = None) -> pd.DataFrame:
+    """只撈單一學生的 logs，不用 cache，每次即時取得
+    date_from：'YYYY-MM-DD'，只撈這天以後的紀錄（None = 全部）
+    若 Supabase 已新增 practice_mode / session_start 欄位，一併取回"""
+    def _fetch(fields):
         sb  = get_supabase()
-        all_logs = []
+        rows = []
         page = 0
         while True:
-            res = sb.table("logs").select(
-                "created_at,name,group_id,question_id,result,student_answer,score,task_name,elapsed_sec"
-            ).eq("name", stu_name).order("created_at", desc=False).range(page*1000, (page+1)*1000-1).execute()
+            q = sb.table("logs").select(fields).eq("name", stu_name)
+            if date_from:
+                q = q.gte("created_at", date_from)
+            res = q.order("created_at", desc=False).range(page*1000, (page+1)*1000-1).execute()
             if not res.data:
                 break
-            all_logs.extend(res.data)
+            rows.extend(res.data)
             if len(res.data) < 1000:
                 break
             page += 1
+        return rows
+    try:
+        if st.session_state.get("_no_session_cols"):
+            all_logs = _fetch(_LOG_BASE_FIELDS)
+        else:
+            try:
+                all_logs = _fetch(_LOG_BASE_FIELDS + "," + _LOG_EXTRA_FIELDS)
+            except Exception as e:
+                if "practice_mode" in str(e) or "session_start" in str(e):
+                    st.session_state["_no_session_cols"] = True
+                    all_logs = _fetch(_LOG_BASE_FIELDS)
+                else:
+                    raise
         if all_logs:
             df = pd.DataFrame(all_logs)
             df = _to_cn(df, LOGS_COLS)
@@ -332,6 +351,153 @@ def _clean_task_name(name: str) -> str:
         s = s[:idx]
     return s.strip()
 
+# ── V2.04：依「每次作答」分組（開始時間＋練習方式）────────────────────────────
+_SESSION_GAP_MIN = 10   # 舊紀錄（沒有開始時間欄位）：同任務相隔超過 10 分鐘視為新的一次
+
+def _strip_task_date(name: str) -> str:
+    """'[T...] xxx-AA-小康-2026-04-27_15:09-...' → '[T...] xxx-AA-小康'"""
+    s = str(name)
+    m = re.search(r'-20\d{2}-\d{2}-\d{2}[_\-]', s)
+    if m:
+        s = s[:m.start()]
+    return s.strip()
+
+@st.cache_data(ttl=60)
+def _build_qid_task_map_all(assign_json: str) -> dict:
+    """qid → 任務名稱（精簡）"""
+    import json
+    m = {}
+    for row in json.loads(assign_json):
+        tname = _strip_task_date(row.get("任務名稱", ""))
+        for q in str(row.get("題目ID清單", "")).split(","):
+            q = q.strip()
+            if q:
+                m[q] = tname
+                m[re.sub(r'^[A-Za-z]_', '', q)] = tname
+    return m
+
+def _to_ts(v):
+    s = str(v or "").strip()
+    if not s or s in ("None", "nan", "NaT"):
+        return pd.NaT
+    return pd.to_datetime(s[:19].replace("T", " "), errors="coerce")
+
+def _fmt_ts(ts, with_date=True):
+    if ts is None or pd.isna(ts):
+        return "—"
+    wd = _WEEKDAY_CN[ts.weekday()]
+    return ts.strftime(f"%m-%d({wd}) %H:%M:%S") if with_date else ts.strftime("%H:%M:%S")
+
+def _infer_mode(results) -> str:
+    """舊紀錄沒有練習方式欄位時，由作答結果推測"""
+    rs = [str(r) for r in results]
+    if any(r == "練習" for r in rs):     return "🏋️ 練習模式（推測）"
+    if any("跟著唸" in r for r in rs):   return "🎤 跟著唸和錄音（推測）"
+    if any("朗讀" in r for r in rs):     return "🎤 朗讀（推測）"
+    return "⚡ 快速答題（推測）"
+
+def _build_sessions(df: pd.DataFrame) -> list:
+    """
+    把答題紀錄分成一次一次的作答：
+      有『開始時間』欄位（app V2.9.540 起）→ 同一個開始時間＋練習方式 = 同一次
+      沒有（舊紀錄）→ 同任務、相鄰兩題相隔不超過 _SESSION_GAP_MIN 分鐘 = 同一次
+    回傳依開始時間由新到舊排序的 list。
+    """
+    if df is None or df.empty or "時間" not in df.columns:
+        return []
+    d = df.copy()
+    for c in ("開始時間", "練習方式", "_task", "答題秒數"):
+        if c not in d.columns:
+            d[c] = ""
+    d["開始時間"] = d["開始時間"].fillna("").astype(str).replace({"None": "", "nan": ""})
+    d["練習方式"] = d["練習方式"].fillna("").astype(str).replace({"None": "", "nan": ""})
+    d["_t"] = d["時間"].apply(_to_ts)
+    d = d.dropna(subset=["_t"]).sort_values("_t").reset_index(drop=True)
+    if d.empty:
+        return []
+
+    sids, last, n = [], {}, 0
+    for _, r in d.iterrows():
+        if r["開始時間"]:
+            sids.append(f"S|{r['開始時間']}|{r['練習方式']}")
+            continue
+        prev = last.get(r["_task"])
+        if prev and (r["_t"] - prev[1]).total_seconds() <= _SESSION_GAP_MIN * 60:
+            sid = prev[0]
+        else:
+            n += 1
+            sid = f"G|{n}"
+        last[r["_task"]] = (sid, r["_t"])
+        sids.append(sid)
+    d["_sid"] = sids
+
+    sessions = []
+    for sid, g in d.groupby("_sid", sort=False):
+        first = g.iloc[0]
+        if sid.startswith("S|"):
+            start = _to_ts(first["開始時間"])
+            mode  = first["練習方式"] or "—"
+        else:
+            el = pd.to_numeric(first.get("答題秒數"), errors="coerce")
+            start = first["_t"] - timedelta(seconds=float(el) if pd.notna(el) else 0)
+            mode  = _infer_mode(g["結果"].tolist())
+        if pd.isna(start):
+            start = first["_t"]
+        tasks = g["_task"].astype(str)
+        tasks = tasks[tasks != ""]
+        task  = tasks.mode().iloc[0] if not tasks.empty else "（未對應任務）"
+        sessions.append({
+            "start": start, "end": g["_t"].max(), "mode": mode, "task": task,
+            "df": g.drop(columns=["_t", "_sid"]),
+        })
+    sessions.sort(key=lambda s: s["start"], reverse=True)
+    return sessions
+
+def _session_stats(g: pd.DataFrame) -> dict:
+    res  = g["結果"].astype(str) if "結果" in g.columns else pd.Series(dtype=str)
+    ok   = int((res == "✅").sum())
+    err  = int((res == "❌").sum())
+    prac = int((res == "練習").sum())
+    test = ok + err
+    return {
+        "total": len(g), "ok": ok, "err": err, "prac": prac, "test": test,
+        "rate": f"{ok / test * 100:.0f}%" if test else "—",
+        "elapsed": _sum_elapsed(g),
+    }
+
+def _session_summary(s: dict) -> str:
+    stt = _session_stats(s["df"])
+    txt = f"🕒 {_fmt_ts(s['start'], with_date=False)}　{s['mode']}｜{s['task']}"
+    if stt["test"]: txt += f"　測驗{stt['test']}題 ✅{stt['ok']} ❌{stt['err']}（{stt['rate']}）"
+    if stt["prac"]: txt += f"　練習{stt['prac']}題"
+    other = stt["total"] - stt["test"] - stt["prac"]
+    if other > 0:   txt += f"　其他{other}筆"
+    if stt["elapsed"]: txt += f"　⏱{stt['elapsed']}"
+    return txt
+
+def _render_latest_session(s: dict):
+    """置頂：本次（最新一次）作答報告"""
+    stt = _session_stats(s["df"])
+    with st.container(border=True):
+        st.markdown("#### 🆕 本次作答報告")
+        st.markdown(f"**{s['task']}**")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("作答開始時間", _fmt_ts(s["start"]))
+        c2.metric("練習方式", s["mode"])
+        c3.metric("作答時間", stt["elapsed"] or "—")
+        c4, c5, c6, c7 = st.columns(4)
+        c4.metric("作答題數", stt["total"])
+        if stt["test"]:
+            c5.metric("✅ 答對", stt["ok"])
+            c6.metric("❌ 答錯", stt["err"])
+            c7.metric("正確率", stt["rate"])
+        else:
+            c5.metric("🏋️ 練習題數", stt["prac"])
+            c6.metric("最後作答", _fmt_ts(s["end"], with_date=False))
+        st.caption(f"最後作答：{_fmt_ts(s['end'])}")
+        with st.expander("查看本次作答明細", expanded=False):
+            _render_detail(s["df"])
+
 @st.cache_data(ttl=600)
 def build_question_lookup(qids: tuple) -> dict:
     """給定一組 question_id，回傳 {qid: {'題目': ..., '答案': ...}} 字典"""
@@ -518,70 +684,65 @@ if _role == "student":
         _stu_from_str = _stu_from.strftime("%Y-%m-%d")
         _stu_to_str   = _stu_to.strftime("%Y-%m-%d")
 
-        if st.button("🔄 更新我的資料", type="primary", key="stu_refresh_main"):
-            df_stu_mine = load_logs_for_student(_name)
-            df_mine = df_stu_mine.copy() if not df_stu_mine.empty else pd.DataFrame()
+        # V2.04：學生在練習系統選好「練習方式」按下開始後，這裡自動重新統計本次作答
+        _auto_c1, _auto_c2 = st.columns([3, 1])
+        _auto_on = _auto_c1.toggle("⏱ 自動更新（每 30 秒）", value=True, key="stu_auto_refresh")
+        if _auto_c2.button("🔄 立即更新", type="primary", key="stu_refresh_main", use_container_width=True):
+            load_assignments.clear()
+            st.rerun()
+
+        @st.fragment(run_every=30 if _auto_on else None)
+        def _stu_report_fragment():
+            df_mine = load_logs_for_student(_name, date_from=_stu_from_str)
             if not df_mine.empty and "時間" in df_mine.columns:
-                df_mine = df_mine[(df_mine["時間"].str[:10] >= _stu_from_str) & (df_mine["時間"].str[:10] <= _stu_to_str)]
-            df_mine_ans = df_mine[~df_mine["結果"].str.contains("📖", na=False)] if not df_mine.empty and "結果" in df_mine.columns else pd.DataFrame()
-            df_a_mine = load_assignments()
-            _aj = df_a_mine.to_json(orient="records") if not df_a_mine.empty else "[]"
+                df_mine = df_mine[(df_mine["時間"].astype(str).str[:10] >= _stu_from_str) &
+                                  (df_mine["時間"].astype(str).str[:10] <= _stu_to_str)]
+            if not df_mine.empty and "結果" in df_mine.columns:
+                df_mine = df_mine[~df_mine["結果"].astype(str).str.contains("📖", na=False)]
 
-            @st.cache_data(ttl=600)
-            def _build_mine_task_map(aj):
-                import json
-                rows = json.loads(aj)
-                m = {}
-                for row in rows:
-                    tname = row.get("任務名稱","")
-                    r2 = re.search(r'-20\d{2}-\d{2}-\d{2}[_\-]', tname)
-                    if r2: tname = tname[:r2.start()].strip()
-                    for q in str(row.get("題目ID清單","")).split(","):
-                        q = q.strip()
-                        if q:
-                            q2 = re.sub(r'^[A-Za-z]_','',q)
-                            m[q] = tname; m[q2] = tname
-                return m
-
-            _qtask = _build_mine_task_map(_aj)
-            if not df_mine_ans.empty:
-                df_mine_ans["_task"] = df_mine_ans["題目ID"].apply(lambda x: _qtask.get(str(x).strip(), _qtask.get(re.sub(r'^[A-Za-z]_','',str(x).strip()), "")))
-                df_mine_ans = df_mine_ans[df_mine_ans["_task"] != ""]
-                df_mine_ans["_date"] = df_mine_ans["時間"].str[:10]
-            st.session_state["stu_mine_df"] = df_mine_ans.to_dict("records") if not df_mine_ans.empty else []
-            st.session_state["stu_mine_range"] = (_stu_from_str, _stu_to_str)
-
-        if "stu_mine_df" in st.session_state:
-            _mf, _mt = st.session_state.get("stu_mine_range", (_stu_from_str, _stu_to_str))
-            st.caption(f"📅 {_mf} ～ {_mt}")
-            mine_df = pd.DataFrame(st.session_state["stu_mine_df"])
-            if mine_df.empty:
+            st.caption(f"📅 {_stu_from_str} ～ {_stu_to_str}　｜　最後更新：{get_now().strftime('%H:%M:%S')}")
+            if df_mine.empty:
                 st.info("此時間範圍內無答題資料")
-            else:
-                for day in sorted(mine_df["_date"].unique(), reverse=True):
-                    day_df = mine_df[mine_df["_date"] == day]
-                    day_elapsed = _sum_elapsed(pd.DataFrame(day_df))
-                    try:
-                        dt2 = pd.to_datetime(day)
-                        wd2 = _WEEKDAY_CN[dt2.weekday()]
-                        day_label = f"**📅 {day}（{wd2}）**"
-                    except:
-                        day_label = f"**📅 {day}**"
-                    if day_elapsed: day_label += f"　⏱ {day_elapsed}"
-                    st.markdown(day_label)
-                    for tname, tdf in day_df.groupby("_task"):
-                        prac_tot = len(tdf[tdf["結果"]=="練習"])
-                        test_df  = tdf[tdf["結果"].isin(["✅","❌"])]
-                        test_ok  = len(test_df[test_df["結果"]=="✅"])
-                        test_err = len(test_df[test_df["結果"]=="❌"])
-                        test_tot = len(test_df)
-                        elapsed  = _sum_elapsed(pd.DataFrame(tdf))
-                        summary  = f"{tname}"
-                        if test_tot > 0: summary += f"　測驗{test_tot}題 ✅{test_ok} ❌{test_err}"
-                        if prac_tot > 0: summary += f"　練習{prac_tot}題"
-                        if elapsed:      summary += f"　⏱{elapsed}"
-                        with st.expander(summary, expanded=False):
-                            _render_detail(pd.DataFrame(tdf) if isinstance(tdf, dict) else tdf)
+                return
+
+            df_a_mine = load_assignments()
+            _aj    = df_a_mine.to_json(orient="records") if not df_a_mine.empty else "[]"
+            _qtask = _build_qid_task_map_all(_aj)
+            df_mine = df_mine.copy()
+            df_mine["_task"] = df_mine["題目ID"].apply(
+                lambda x: _qtask.get(str(x).strip(), _qtask.get(re.sub(r'^[A-Za-z]_', '', str(x).strip()), "")))
+            if "任務名稱" in df_mine.columns:
+                _miss = df_mine["_task"] == ""
+                df_mine.loc[_miss, "_task"] = df_mine.loc[_miss, "任務名稱"].fillna("").astype(str).apply(_strip_task_date)
+
+            sessions = _build_sessions(df_mine)
+            if not sessions:
+                st.info("此時間範圍內無答題資料")
+                return
+
+            # 置頂：本次（最新一次）作答
+            _render_latest_session(sessions[0])
+            if st.session_state.get("_no_session_cols"):
+                st.caption("ℹ️ 資料庫尚未新增「練習方式／開始時間」欄位，目前依作答時間自動分組，練習方式為推測。")
+
+            # 歷次作答（依開始日期分組，新到舊）
+            st.markdown("#### 📜 歷次作答")
+            _cur_day = None
+            for i, s in enumerate(sessions):
+                _day = s["start"].strftime("%Y-%m-%d")
+                if _day != _cur_day:
+                    _cur_day = _day
+                    _day_sess = [x for x in sessions if x["start"].strftime("%Y-%m-%d") == _day]
+                    _day_el = _sum_elapsed(pd.concat([x["df"] for x in _day_sess], ignore_index=True))
+                    _lbl = f"**📅 {_day}（{_WEEKDAY_CN[s['start'].weekday()]}）**　共 {len(_day_sess)} 次作答"
+                    if _day_el:
+                        _lbl += f"　⏱ {_day_el}"
+                    st.markdown(_lbl)
+                _summary = ("🆕 " if i == 0 else "") + _session_summary(s)
+                with st.expander(_summary, expanded=False):
+                    _render_detail(s["df"])
+
+        _stu_report_fragment()
 
     with tab_stu_task:
         df_a_task = load_assignments()
