@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.05                                     ║
+# ║  dashboard.py  V2.06                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.05"
+DASHBOARD_VERSION = "2.06"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -133,17 +133,16 @@ def load_logs_for_student(stu_name: str, date_from: str = None) -> pd.DataFrame:
             page += 1
         return rows
     try:
-        if st.session_state.get("_no_session_cols"):
-            all_logs = _fetch(_LOG_BASE_FIELDS)
-        else:
-            try:
-                all_logs = _fetch(_LOG_BASE_FIELDS + "," + _LOG_EXTRA_FIELDS)
-            except Exception as e:
-                if "practice_mode" in str(e) or "session_start" in str(e):
-                    st.session_state["_no_session_cols"] = True
-                    all_logs = _fetch(_LOG_BASE_FIELDS)
-                else:
-                    raise
+        # V2.06：每次都先試新欄位（不再一直記住「沒有欄位」，避免 SQL 執行後仍顯示推測）
+        try:
+            all_logs = _fetch(_LOG_BASE_FIELDS + "," + _LOG_EXTRA_FIELDS)
+            st.session_state["_no_session_cols"] = False
+        except Exception as e:
+            if "practice_mode" in str(e) or "session_start" in str(e):
+                st.session_state["_no_session_cols"] = True
+                all_logs = _fetch(_LOG_BASE_FIELDS)
+            else:
+                raise
         if all_logs:
             df = pd.DataFrame(all_logs)
             df = _to_cn(df, LOGS_COLS)
