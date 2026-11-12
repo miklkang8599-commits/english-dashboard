@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.08                                     ║
+# ║  dashboard.py  V2.09                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.08"
+DASHBOARD_VERSION = "2.09"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -831,16 +831,27 @@ with tab_report:
         df_sl["_gp"] = df_sl["分組"].astype(str).str.strip()
         df_sl["_nm"] = df_sl["姓名"].astype(str).str.strip()
         df_sl = df_sl.sort_values(["_sy", "_gp", "_nm"])
-        for _sy in df_sl["_sy"].unique().tolist():
-            _y = df_sl[df_sl["_sy"] == _sy]
-            st.markdown(f"### 📅 學年：{_sy or '（未填）'}　{len(_y)} 人")
-            for _grp in _y["_gp"].unique().tolist():
-                _g = _y[_y["_gp"] == _grp]
-                st.markdown(f"#### 組別：{_grp or '（未分組）'}　{len(_g)} 人")
-                _cols = st.columns(_ncol)
-                for _i, (_, _r) in enumerate(_g.iterrows()):
-                    _nm = _r["_nm"]
-                    _cols[_i % _ncol].link_button(f"👤 {_nm}", _base + _make_view_query(_nm), use_container_width=True)
+        # V2.09：表格化顯示，最後一欄點連結在新分頁開啟學習報告
+        _tbl = pd.DataFrame({
+            "學年": df_sl["_sy"].tolist(),
+            "組別": df_sl["_gp"].tolist(),
+            "姓名": df_sl["_nm"].tolist(),
+            "帳號": df_sl["帳號"].astype(str).str.strip().tolist() if "帳號" in df_sl.columns else [""] * len(df_sl),
+            "學習報告": [_base + _make_view_query(n) for n in df_sl["_nm"].tolist()],
+        })
+        if not _tbl.empty:
+            st.caption(f"共 {len(_tbl)} 位學生　｜　點「📊 開啟報告」會在新分頁顯示該生的學習報告")
+            st.dataframe(
+                _tbl, hide_index=True, use_container_width=True,
+                height=min(35 * (len(_tbl) + 1) + 3, 720),
+                column_config={
+                    "學年":     st.column_config.TextColumn("學年", width="small"),
+                    "組別":     st.column_config.TextColumn("組別", width="small"),
+                    "姓名":     st.column_config.TextColumn("姓名", width="medium"),
+                    "帳號":     st.column_config.TextColumn("帳號", width="small"),
+                    "學習報告": st.column_config.LinkColumn("學習報告", display_text="📊 開啟報告", width="medium"),
+                },
+            )
 
 
 
