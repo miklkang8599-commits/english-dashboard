@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.07                                     ║
+# ║  dashboard.py  V2.08                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.07"
+DASHBOARD_VERSION = "2.08"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -824,13 +824,23 @@ with tab_report:
             st.info("找不到符合的學生")
         _base = _dash_base_url()
         _ncol = 6
-        for _grp in sorted(df_sl["分組"].astype(str).str.strip().unique().tolist()):
-            _g = df_sl[df_sl["分組"].astype(str).str.strip() == _grp]
-            st.markdown(f"#### 班級：{_grp or '（未分組）'}　{len(_g)} 人")
-            _cols = st.columns(_ncol)
-            for _i, (_, _r) in enumerate(_g.iterrows()):
-                _nm = str(_r["姓名"]).strip()
-                _cols[_i % _ncol].link_button(f"👤 {_nm}", _base + _make_view_query(_nm), use_container_width=True)
+        # V2.08：依 學年 → 組別 → 姓名 排列
+        if "學年" not in df_sl.columns:
+            df_sl["學年"] = ""
+        df_sl["_sy"] = df_sl["學年"].astype(str).str.strip()
+        df_sl["_gp"] = df_sl["分組"].astype(str).str.strip()
+        df_sl["_nm"] = df_sl["姓名"].astype(str).str.strip()
+        df_sl = df_sl.sort_values(["_sy", "_gp", "_nm"])
+        for _sy in df_sl["_sy"].unique().tolist():
+            _y = df_sl[df_sl["_sy"] == _sy]
+            st.markdown(f"### 📅 學年：{_sy or '（未填）'}　{len(_y)} 人")
+            for _grp in _y["_gp"].unique().tolist():
+                _g = _y[_y["_gp"] == _grp]
+                st.markdown(f"#### 組別：{_grp or '（未分組）'}　{len(_g)} 人")
+                _cols = st.columns(_ncol)
+                for _i, (_, _r) in enumerate(_g.iterrows()):
+                    _nm = _r["_nm"]
+                    _cols[_i % _ncol].link_button(f"👤 {_nm}", _base + _make_view_query(_nm), use_container_width=True)
 
 
 
