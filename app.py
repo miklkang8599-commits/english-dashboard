@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.09                                     ║
+# ║  dashboard.py  V2.10                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.09"
+DASHBOARD_VERSION = "2.10"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -827,16 +827,17 @@ with tab_report:
         # V2.08：依 學年 → 組別 → 姓名 排列
         if "學年" not in df_sl.columns:
             df_sl["學年"] = ""
-        df_sl["_sy"] = df_sl["學年"].astype(str).str.strip()
+        # V2.10：學年用整數（試算表讀進來可能是 114.0）
+        df_sl["_sy"] = pd.to_numeric(df_sl["學年"].astype(str).str.strip(), errors="coerce").round().astype("Int64")
         df_sl["_gp"] = df_sl["分組"].astype(str).str.strip()
         df_sl["_nm"] = df_sl["姓名"].astype(str).str.strip()
         df_sl = df_sl.sort_values(["_sy", "_gp", "_nm"])
         # V2.09：表格化顯示，最後一欄點連結在新分頁開啟學習報告
         _tbl = pd.DataFrame({
-            "學年": df_sl["_sy"].tolist(),
+            "學年": df_sl["_sy"].astype("Int64").reset_index(drop=True),
             "組別": df_sl["_gp"].tolist(),
             "姓名": df_sl["_nm"].tolist(),
-            "帳號": df_sl["帳號"].astype(str).str.strip().tolist() if "帳號" in df_sl.columns else [""] * len(df_sl),
+            "帳號": df_sl["帳號"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True).tolist() if "帳號" in df_sl.columns else [""] * len(df_sl),
             "學習報告": [_base + _make_view_query(n) for n in df_sl["_nm"].tolist()],
         })
         if not _tbl.empty:
@@ -845,7 +846,7 @@ with tab_report:
                 _tbl, hide_index=True, use_container_width=True,
                 height=min(35 * (len(_tbl) + 1) + 3, 720),
                 column_config={
-                    "學年":     st.column_config.TextColumn("學年", width="small"),
+                    "學年":     st.column_config.NumberColumn("學年", format="%d", width="small"),
                     "組別":     st.column_config.TextColumn("組別", width="small"),
                     "姓名":     st.column_config.TextColumn("姓名", width="medium"),
                     "帳號":     st.column_config.TextColumn("帳號", width="small"),
