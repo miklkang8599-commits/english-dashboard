@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.10                                     ║
+# ║  dashboard.py  V2.11                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.10"
+DASHBOARD_VERSION = "2.11"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -812,6 +812,10 @@ with tab_report:
         st.info("讀不到 students 工作表")
     else:
         df_sl = df_sl[df_sl["姓名"].astype(str).str.strip() != ""].copy()
+        # V2.11：帳號是 4 位數（試算表可能讀成 85.0 → 補回 0085）
+        if "帳號" in df_sl.columns:
+            df_sl["帳號"] = df_sl["帳號"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True).apply(
+                lambda a: a.zfill(4) if a.isdigit() else a)
         if "分組" not in df_sl.columns:
             df_sl["分組"] = ""
         df_sl = df_sl[~df_sl["分組"].astype(str).str.strip().str.upper().isin(["ADMIN", "TEACHER"])]
@@ -837,20 +841,21 @@ with tab_report:
             "學年": df_sl["_sy"].astype("Int64").reset_index(drop=True),
             "組別": df_sl["_gp"].tolist(),
             "姓名": df_sl["_nm"].tolist(),
-            "帳號": df_sl["帳號"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True).tolist() if "帳號" in df_sl.columns else [""] * len(df_sl),
+            "帳號": df_sl["帳號"].tolist() if "帳號" in df_sl.columns else [""] * len(df_sl),
             "學習報告": [_base + _make_view_query(n) for n in df_sl["_nm"].tolist()],
         })
         if not _tbl.empty:
             st.caption(f"共 {len(_tbl)} 位學生　｜　點「📊 開啟報告」會在新分頁顯示該生的學習報告")
+            # V2.11：表格不佔滿整頁，欄寬依內容
             st.dataframe(
-                _tbl, hide_index=True, use_container_width=True,
+                _tbl, hide_index=True, use_container_width=False, width=520,
                 height=min(35 * (len(_tbl) + 1) + 3, 720),
                 column_config={
                     "學年":     st.column_config.NumberColumn("學年", format="%d", width="small"),
                     "組別":     st.column_config.TextColumn("組別", width="small"),
-                    "姓名":     st.column_config.TextColumn("姓名", width="medium"),
+                    "姓名":     st.column_config.TextColumn("姓名", width="small"),
                     "帳號":     st.column_config.TextColumn("帳號", width="small"),
-                    "學習報告": st.column_config.LinkColumn("學習報告", display_text="📊 開啟報告", width="medium"),
+                    "學習報告": st.column_config.LinkColumn("學習報告", display_text="📊 開啟報告", width="small"),
                 },
             )
 
