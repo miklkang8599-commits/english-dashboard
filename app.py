@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.11                                     ║
+# ║  dashboard.py  V2.12                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.11"
+DASHBOARD_VERSION = "2.12"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -637,6 +637,19 @@ try:
 except Exception:
     pass
 
+# V2.12：老師登入狀態保留在網址（簽章、30 天），按「登出」才清除
+_TEACHER_TTL_SEC = 30 * 86400
+try:
+    if not st.session_state.get("dash_logged_in"):
+        _qp2 = st.query_params
+        _tr, _tn, _tg, _te, _ts = (_qp2.get(k) for k in ("tk_role", "tk_name", "tk_grp", "tk_exp", "tk_sig"))
+        if _tr in ("admin", "teacher") and _te and _ts and int(_te) >= int(_time_mod.time()) \
+                and _hmac.compare_digest(_view_sig(f"T|{_tr}|{_tn or ''}|{_tg or ''}", int(_te)), str(_ts)):
+            st.session_state.update({"dash_logged_in": True, "dash_role": _tr,
+                                     "dash_name": _tn or "", "dash_group": _tg or ""})
+except Exception:
+    pass
+
 if not st.session_state.get('dash_logged_in'):
     st.title("📚 英文全能練習系統")
     col1, col2, col3 = st.columns([1,1,1])
@@ -654,6 +667,13 @@ if not st.session_state.get('dash_logged_in'):
                     st.session_state['dash_role']      = role
                     st.session_state['dash_name']      = name
                     st.session_state['dash_group']     = grp
+                    # V2.12：老師／管理員登入後，網址帶簽章，重新整理或重開網頁仍維持登入（30 天）
+                    if role in ("admin", "teacher"):
+                        _exp = int(_time_mod.time()) + _TEACHER_TTL_SEC
+                        st.query_params.update({
+                            "tk_role": role, "tk_name": name, "tk_grp": grp, "tk_exp": str(_exp),
+                            "tk_sig": _view_sig(f"T|{role}|{name}|{grp}", _exp),
+                        })
                     st.rerun()
                 else:
                     st.error("帳號或密碼錯誤")
