@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.12                                     ║
+# ║  dashboard.py  V2.13                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.12"
+DASHBOARD_VERSION = "2.13"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -839,11 +839,30 @@ with tab_report:
         if "分組" not in df_sl.columns:
             df_sl["分組"] = ""
         df_sl = df_sl[~df_sl["分組"].astype(str).str.strip().str.upper().isin(["ADMIN", "TEACHER"])]
-        _kw = _sl1.text_input("🔍 搜尋姓名或帳號", key="stu_list_kw", placeholder="輸入部分姓名或帳號")
-        if _kw.strip():
-            _k = _kw.strip()
+        # V2.13：可一次貼上一串學生名單（姓名或帳號，用空白、逗號、頓號或換行分隔）
+        _kw = _sl1.text_area("🔍 搜尋姓名或帳號（可一次貼上多位學生）", key="stu_list_kw", height=80,
+                             placeholder="例：王小明 林阿明 0085（空白、逗號、頓號或換行分隔）\n只打一個時可輸入部分姓名或帳號")
+        _tokens = [x for x in re.split(r"[\s,，、;；/]+", _kw.strip()) if x] if _kw.strip() else []
+        _not_found = []
+        if _tokens:
             _acc = df_sl["帳號"].astype(str) if "帳號" in df_sl.columns else pd.Series("", index=df_sl.index)
-            df_sl = df_sl[df_sl["姓名"].astype(str).str.contains(_k, regex=False) | _acc.str.contains(_k, regex=False)]
+            _nm_s = df_sl["姓名"].astype(str).str.strip()
+            if len(_tokens) > 1:
+                _mask = pd.Series(False, index=df_sl.index)
+                for _tk in _tokens:
+                    _tk4 = _tk.zfill(4) if _tk.isdigit() else _tk
+                    _hit = (_nm_s == _tk) | (_acc == _tk4)
+                    if not _hit.any():
+                        _hit = _nm_s.str.contains(_tk, regex=False)   # 名字不完整時改用部分比對
+                    if not _hit.any():
+                        _not_found.append(_tk)
+                    _mask = _mask | _hit
+                df_sl = df_sl[_mask]
+            else:
+                _k = _tokens[0]
+                df_sl = df_sl[_nm_s.str.contains(_k, regex=False) | _acc.str.contains(_k, regex=False)]
+        if _not_found:
+            st.warning("找不到：" + "、".join(_not_found))
         if df_sl.empty:
             st.info("找不到符合的學生")
         _base = _dash_base_url()
@@ -866,6 +885,27 @@ with tab_report:
         })
         if not _tbl.empty:
             st.caption(f"共 {len(_tbl)} 位學生　｜　點「📊 開啟報告」會在新分頁顯示該生的學習報告")
+            # V2.13：搜尋後可一次在新分頁開啟列出的所有學生報告
+            if _tokens and len(_tbl) <= 40:
+                import json as _json
+                import streamlit.components.v1 as _components
+                _urls = _json.dumps(_tbl["學習報告"].tolist())
+                _components.html(f"""
+<button id="openall" style="padding:8px 16px;font-size:15px;border-radius:8px;border:1px solid #ff4b4b;
+  background:#ff4b4b;color:#fff;cursor:pointer;">🚀 一次開啟這 {len(_tbl)} 位學生的報告</button>
+<span id="msg" style="margin-left:10px;font-size:13px;color:#888;font-family:sans-serif;"></span>
+<script>
+const urls = {_urls};
+document.getElementById('openall').onclick = () => {{
+  let ok = 0;
+  for (const u of urls) {{ const w = window.open(u, '_blank'); if (w) ok++; }}
+  document.getElementById('msg').textContent = ok < urls.length
+    ? `只開了 ${{ok}} 個分頁：請在網址列右側允許此網站的「彈出式視窗」後再按一次`
+    : `已開啟 ${{ok}} 個分頁`;
+}};
+</script>""", height=52)
+            elif _tokens:
+                st.caption("⚠️ 一次最多開 40 位學生，請縮小名單後再使用「一次開啟」。")
             # V2.11：表格不佔滿整頁，欄寬依內容
             st.dataframe(
                 _tbl, hide_index=True, use_container_width=False, width=520,
