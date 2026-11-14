@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.13                                     ║
+# ║  dashboard.py  V2.14                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.13"
+DASHBOARD_VERSION = "2.14"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -840,8 +840,19 @@ with tab_report:
             df_sl["分組"] = ""
         df_sl = df_sl[~df_sl["分組"].astype(str).str.strip().str.upper().isin(["ADMIN", "TEACHER"])]
         # V2.13：可一次貼上一串學生名單（姓名或帳號，用空白、逗號、頓號或換行分隔）
-        _kw = _sl1.text_area("🔍 搜尋姓名或帳號（可一次貼上多位學生）", key="stu_list_kw", height=80,
-                             placeholder="例：王小明 林阿明 0085（空白、逗號、頓號或換行分隔）\n只打一個時可輸入部分姓名或帳號")
+        # V2.14：加「送出」「清除」按鈕
+        def _stu_search_clear():
+            st.session_state["stu_list_kw_in"] = ""
+            st.session_state["stu_list_q"] = ""
+        with _sl1.form("stu_search_form", clear_on_submit=False, border=False):
+            _kw_in = st.text_area("🔍 搜尋姓名或帳號（可一次貼上多位學生）", key="stu_list_kw_in", height=80,
+                                  placeholder="例：王小明 林阿明 0085（空白、逗號、頓號或換行分隔）\n只打一個時可輸入部分姓名或帳號")
+            _fb1, _fb2, _fb3 = st.columns([1, 1, 4])
+            _do_search = _fb1.form_submit_button("🔍 送出", type="primary", use_container_width=True)
+            _fb2.form_submit_button("🧹 清除", use_container_width=True, on_click=_stu_search_clear)
+        if _do_search:
+            st.session_state["stu_list_q"] = _kw_in
+        _kw = st.session_state.get("stu_list_q", "") or ""
         _tokens = [x for x in re.split(r"[\s,，、;；/]+", _kw.strip()) if x] if _kw.strip() else []
         _not_found = []
         if _tokens:
