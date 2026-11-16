@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.16                                     ║
+# ║  dashboard.py  V2.17                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.16"
+DASHBOARD_VERSION = "2.17"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -589,6 +589,58 @@ def _login_check(account: str, password: str):
         pass
     return None
 
+# ── V2.17：依學年分顏色，瀏覽器分頁標題＝學生姓名、分頁小圖示＝學年顏色＋姓名末字 ──
+_YEAR_COLORS = [("#e5484d", "🔴"), ("#f76b15", "🟠"), ("#d4a700", "🟡"),
+                ("#30a46c", "🟢"), ("#0090ff", "🔵"), ("#8e4ec6", "🟣")]
+
+def _year_color(sy):
+    try:
+        return _YEAR_COLORS[int(float(str(sy).strip())) % len(_YEAR_COLORS)]
+    except Exception:
+        return ("#6b7280", "⚪")
+
+def _student_year(name: str) -> str:
+    try:
+        df = load_students()
+        if df.empty or "姓名" not in df.columns or "學年" not in df.columns:
+            return ""
+        m = df[df["姓名"].astype(str).str.strip() == str(name).strip()]
+        if m.empty:
+            return ""
+        v = pd.to_numeric(str(m.iloc[0]["學年"]).strip(), errors="coerce")
+        return "" if pd.isna(v) else str(int(round(v)))
+    except Exception:
+        return ""
+
+def _set_browser_tab(name: str, sy: str):
+    """把瀏覽器分頁標題改成學生姓名，小圖示改成學年顏色＋姓名最後一個字"""
+    import json as _json
+    import streamlit.components.v1 as _components
+    color, _ = _year_color(sy)
+    title = f"{name}｜{sy}學年" if sy else name
+    ch = (str(name).strip() or "？")[-1]
+    svg = (f"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+           f"<rect width='64' height='64' rx='14' fill='{color}'/>"
+           f"<text x='32' y='47' font-size='42' text-anchor='middle' fill='#fff' "
+           f"font-family='sans-serif' font-weight='bold'>{ch}</text></svg>")
+    _components.html(f"""<script>
+const T = {_json.dumps(title)};
+const ICON = "data:image/svg+xml," + encodeURIComponent({_json.dumps(svg)});
+function apply(doc) {{
+  try {{
+    if (doc.title !== T) doc.title = T;
+    let links = doc.querySelectorAll("link[rel~='icon']");
+    if (!links.length) {{ const l = doc.createElement('link'); l.rel = 'icon'; doc.head.appendChild(l); links = [l]; }}
+    links.forEach(l => {{ if (l.href !== ICON) {{ l.type = 'image/svg+xml'; l.href = ICON; }} }});
+  }} catch (e) {{}}
+}}
+function run() {{
+  try {{ apply(window.parent.document); }} catch (e) {{}}
+  try {{ if (window.top !== window.parent) apply(window.top.document); }} catch (e) {{}}
+}}
+run(); setInterval(run, 1000);
+</script>""", height=0)
+
 # ── V2.07：老師從學生名單開啟學生報告的免密碼連結（簽章、12 小時有效）──────────
 import hmac as _hmac, hashlib as _hashlib, time as _time_mod
 from urllib.parse import quote as _url_quote
@@ -700,7 +752,12 @@ st.divider()
 # 學生視角：只看自己
 # ══════════════════════════════════════════════════════════════════════════════
 if _role == "student":
-    st.subheader(f"📋 {_name} 的學習紀錄")
+    # V2.17：分頁標題＝姓名、圖示＝學年顏色；頁面上的姓名也用學年顏色標示
+    _sy_me = _student_year(_name)
+    _set_browser_tab(_name, _sy_me)
+    _c_me, _e_me = _year_color(_sy_me)
+    st.markdown(f"<h3>📋 <span style='background:{_c_me};color:#fff;padding:2px 12px;border-radius:8px'>{_name}</span>"
+                f"{('　' + _e_me + ' ' + _sy_me + ' 學年') if _sy_me else ''}　的學習紀錄</h3>", unsafe_allow_html=True)
 
     tab_stu_rpt, tab_stu_task = st.tabs(["📊 我的學習報告", "📋 我的任務列表"])
 
@@ -769,7 +826,7 @@ if _role == "student":
                 st.caption("ℹ️ 資料庫尚未新增「練習方式／開始時間」欄位，目前依作答時間自動分組，練習方式為推測。")
 
             # 歷次作答（依開始日期分組，新到舊）
-            st.markdown(f"#### 📜 歷次作答　👤 {_name}")  # V2.16：標題旁加學生姓名
+            st.markdown(f"#### 📜 歷次作答　{_year_color(_sy_me)[1]} {_name}")  # V2.16：標題旁加學生姓名（V2.17：學年顏色）
             _cur_day = None
             for i, s in enumerate(sessions):
                 _day = s["start"].strftime("%Y-%m-%d")
@@ -888,6 +945,7 @@ with tab_report:
         df_sl = df_sl.sort_values(["_sy", "_gp", "_nm"])
         # V2.09：表格化顯示，最後一欄點連結在新分頁開啟學習報告
         _tbl = pd.DataFrame({
+            "色": [_year_color(v)[1] if pd.notna(v) else "" for v in df_sl["_sy"].tolist()],
             "學年": df_sl["_sy"].astype("Int64").reset_index(drop=True),
             "組別": df_sl["_gp"].tolist(),
             "姓名": df_sl["_nm"].tolist(),
@@ -895,7 +953,7 @@ with tab_report:
             "學習報告": [_base + _make_view_query(n) for n in df_sl["_nm"].tolist()],
         })
         if not _tbl.empty:
-            st.caption(f"共 {len(_tbl)} 位學生　｜　點「📊 開啟報告」會在新分頁顯示該生的學習報告")
+            st.caption(f"共 {len(_tbl)} 位學生　｜　點「📊 開啟報告」會在新分頁顯示該生的學習報告　｜　分頁標題是學生姓名，小圖示顏色＝學年、字＝姓名最後一字")
             # V2.13：搜尋後可一次在新分頁開啟列出的所有學生報告
             if _tokens and len(_tbl) <= 40:
                 import json as _json
@@ -919,9 +977,10 @@ document.getElementById('openall').onclick = () => {{
                 st.caption("⚠️ 一次最多開 40 位學生，請縮小名單後再使用「一次開啟」。")
             # V2.11：表格不佔滿整頁，欄寬依內容
             st.dataframe(
-                _tbl, hide_index=True, use_container_width=False, width=520,
+                _tbl, hide_index=True, use_container_width=False, width=560,
                 height=min(35 * (len(_tbl) + 1) + 3, 720),
                 column_config={
+                    "色":       st.column_config.TextColumn("色", width="small", help="學年顏色，和學生報告分頁的小圖示顏色相同"),
                     "學年":     st.column_config.NumberColumn("學年", format="%d", width="small"),
                     "組別":     st.column_config.TextColumn("組別", width="small"),
                     "姓名":     st.column_config.TextColumn("姓名", width="small"),
