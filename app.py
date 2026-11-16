@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.15                                     ║
+# ║  dashboard.py  V2.16                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.15"
+DASHBOARD_VERSION = "2.16"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -769,7 +769,7 @@ if _role == "student":
                 st.caption("ℹ️ 資料庫尚未新增「練習方式／開始時間」欄位，目前依作答時間自動分組，練習方式為推測。")
 
             # 歷次作答（依開始日期分組，新到舊）
-            st.markdown("#### 📜 歷次作答")
+            st.markdown(f"#### 📜 歷次作答　👤 {_name}")  # V2.16：標題旁加學生姓名
             _cur_day = None
             for i, s in enumerate(sessions):
                 _day = s["start"].strftime("%Y-%m-%d")
