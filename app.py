@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.14                                     ║
+# ║  dashboard.py  V2.15                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.14"
+DASHBOARD_VERSION = "2.15"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -731,12 +731,12 @@ if _role == "student":
 
         # V2.04：學生在練習系統選好「練習方式」按下開始後，這裡自動重新統計本次作答
         _auto_c1, _auto_c2 = st.columns([3, 1])
-        _auto_on = _auto_c1.toggle("⏱ 自動更新（每 30 秒）", value=True, key="stu_auto_refresh")
+        _auto_on = _auto_c1.toggle("⏱ 自動更新（每 2 分鐘）", value=True, key="stu_auto_refresh")
         if _auto_c2.button("🔄 立即更新", type="primary", key="stu_refresh_main", use_container_width=True):
             load_assignments.clear()
             st.rerun()
 
-        @st.fragment(run_every=30 if _auto_on else None)
+        @st.fragment(run_every=120 if _auto_on else None)  # V2.15：改為每 2 分鐘
         def _stu_report_fragment():
             df_mine = load_logs_for_student(_name, date_from=_stu_from_str)
             if not df_mine.empty and "時間" in df_mine.columns:
