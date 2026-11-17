@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.22                                     ║
+# ║  dashboard.py  V2.23                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.22"
+DASHBOARD_VERSION = "2.23"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -979,9 +979,14 @@ def _overview_cells(date_from: str, date_to: str) -> dict:
     out, cat = {}, {}
     for nm, g in df.groupby(df["姓名"].astype(str).str.strip()):
         res = g["結果"].astype(str) if "結果" in g.columns else pd.Series("", index=g.index)
-        cat[nm] = {c: (int(((res == "✅") & (g["_cat"] == c)).sum()),
-                       int(((res == "❌") & (g["_cat"] == c)).sum()),
-                       int(((res == "練習") & (g["_cat"] == c)).sum())) for c in _OV_CATS}
+        # V2.23：分類小計改成「每天」記錄，畫面上可選 7／14／30 天加總
+        cat[nm] = {}
+        _dser = g["時間"].astype(str).str[:10]
+        for (_dd, _cc), _gg in g.groupby([_dser, g["_cat"]]):
+            if _cc not in _OV_CATS:
+                continue
+            _r2 = res.loc[_gg.index]
+            cat[nm].setdefault(_dd, {})[_cc] = (int((_r2 == "✅").sum()), int((_r2 == "❌").sum()), int((_r2 == "練習").sum()))
         for s in reversed(_build_sessions(g)):
             d = s["start"].strftime("%Y-%m-%d")
             out.setdefault(nm, {}).setdefault(d, []).append(_cat_tag(s["df"]) + _session_summary(s))
@@ -1063,6 +1068,10 @@ def _render_overview_tab():
     _bg = "#0e1117" if _dark else "#ffffff"
     _hbg = "#262730" if _dark else "#f0f2f6"
     _base = _dash_base_url()
+    # V2.23：單字／文法／閱讀小計的期間
+    _per = st.radio("單字／文法／閱讀小計期間", [7, 14, 30], index=2, horizontal=True,
+                    format_func=lambda x: f"最近 {x} 天", key="ov_stat_days")
+    _per_ds = {d.strftime("%Y-%m-%d") for d in _dates[:_per]}
 
     _css = f"""<style>
 .ovwrap {{ overflow:auto; max-height:78vh; border:1px solid rgba(128,128,128,.35); border-radius:8px; }}
@@ -1096,12 +1105,16 @@ def _render_overview_tab():
         sy = "" if pd.isna(r["_sy"]) else str(int(r["_sy"]))
         color, _ = _year_color(sy)
         my = cells.get(nm, {})
-        n_days = sum(1 for d in _dates if my.get(d.strftime("%Y-%m-%d")))
+        # V2.23：7／14／30 天內有作答的天數
+        n7, n14, n30 = (sum(1 for d in _dates[:k] if my.get(d.strftime("%Y-%m-%d"))) for k in (7, 14, 30))
         url = _html.escape(_base + _make_view_query(nm), quote=True)
         # V2.19：30 天單字／文法／閱讀小計（測驗題數＋正確率；綠≥80%、黃60–79%、紅<60%）
         _st_html, _st_csv = "", {}
         for c in _OV_CATS:
-            ok, err, pr = cats.get(nm, {}).get(c, (0, 0, 0))
+            ok = err = pr = 0
+            for _dd, _dv in cats.get(nm, {}).items():
+                if _dd in _per_ds and c in _dv:
+                    ok += _dv[c][0]; err += _dv[c][1]; pr += _dv[c][2]
             tst = ok + err
             if tst:
                 rate = ok / tst * 100
@@ -1115,8 +1128,10 @@ def _render_overview_tab():
             _st_csv[c] = "" if txt == "—" else txt
         _h.append(
             f"<tr><td class='ovname'><a class='ovbadge' style='background:{color}' href='{url}' target='_blank'>"
-            f"{_html.escape(nm)}</a><div class='ovsub'>{sy}學年 {_html.escape(r['_gp'])}　📆{n_days}天</div>{_st_html}</td>")
-        _csv = {"學年": sy, "組別": r["_gp"], "姓名": nm, **_st_csv}
+            f"{_html.escape(nm)}</a><div class='ovsub'>{sy}學年 {_html.escape(r['_gp'])}</div>"
+            f"<div class='ovsub'>📆 作答天數 7天:{n7}｜14天:{n14}｜30天:{n30}</div>{_st_html}</td>")
+        _csv = {"學年": sy, "組別": r["_gp"], "姓名": nm, "7天作答天數": n7, "14天作答天數": n14, "30天作答天數": n30,
+                **{f"{k}（{_per}天）": v for k, v in _st_csv.items()}}
         for d in _dates:
             ds = d.strftime("%Y-%m-%d")
             lines = my.get(ds, [])
@@ -1131,7 +1146,7 @@ def _render_overview_tab():
 
     _active = sum(1 for nm in df_s["_nm"] if cells.get(nm))
     st.caption(f"輸出時間：{_now.strftime('%Y-%m-%d %H:%M')}　｜　{_d_from} ～ {_d_to}　｜　學生 {len(df_s)} 位，其中 {_active} 位這 30 天有作答")
-    st.caption("🔤單字＝單字題　📝文法＝單選、重組　📖閱讀＝閱讀單句、閱讀重組　｜　名字下面是 30 天測驗題數和正確率：綠≥80%、黃60–79%、紅<60%")
+    st.caption("🔤單字＝單字題　📝文法＝單選、重組　📖閱讀＝閱讀單句、閱讀重組　｜　名字下面是作答天數，以及所選期間的測驗題數和正確率：綠≥80%、黃60–79%、紅<60%")
     st.markdown(_css + "".join(_h), unsafe_allow_html=True)
     st.download_button("⬇️ 下載這張表（CSV，可用 Excel 開）",
                        pd.DataFrame(_csv_rows).to_csv(index=False).encode("utf-8-sig"),
