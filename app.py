@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.25                                     ║
+# ║  dashboard.py  V2.26                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.25"
+DASHBOARD_VERSION = "2.26"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -1071,6 +1071,7 @@ def _render_overview_tab():
         _dark = False
     _bg = "#0e1117" if _dark else "#ffffff"
     _hbg = "#262730" if _dark else "#f0f2f6"
+    _nm_fg = "#ffffff" if _dark else "#000000"   # V2.26：名字用黑字（深色主題用白字）
     _base = _dash_base_url()
     # V2.24：作答天數和單字／文法／閱讀都同時列出 7／14／30 天
     _PERS = (7, 14, 30)
@@ -1144,7 +1145,7 @@ def _render_overview_tab():
             _mini.append(_row + "</tr>")
         _st_html = "".join(_mini) + "</table>"
         _h.append(
-            f"<tr><td class='ovname'><a class='ovbadge' style='background:{color};color:{_year_fg(color)} !important' href='{url}' target='_blank'>"
+            f"<tr><td class='ovname'><a class='ovbadge' style='background:{color}33;border:2px solid {color};color:{_nm_fg} !important' href='{url}' target='_blank'>"
             f"{_html.escape(nm)}</a><div class='ovsub'>{sy}學年 {_html.escape(r['_gp'])}</div>"
             f"{_st_html}</td>")
         _csv = {"學年": sy, "組別": r["_gp"], "姓名": nm, "7天作答天數": n7, "14天作答天數": n14, "30天作答天數": n30,
