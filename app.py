@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.17                                     ║
+# ║  dashboard.py  V2.18                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.17"
+DASHBOARD_VERSION = "2.18"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -870,8 +870,185 @@ if _role == "student":
                 st.info("目前沒有指派給你的進行中任務")
     st.stop()
 
+# ── V2.18：學習總覽（左邊學生、上面日期，最近 30 天，第一欄＝今天）─────────────────
+_OV_DAYS   = 30
+_OV_FIELDS = "created_at,name,question_id,result,task_name,elapsed_sec"
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_logs_range(date_from: str) -> pd.DataFrame:
+    """全班 date_from 以後的作答紀錄（只取總覽需要的欄位）"""
+    sb = get_supabase()
+    def _fetch(fields):
+        rows, page = [], 0
+        while True:
+            res = (sb.table("logs").select(fields).gte("created_at", date_from)
+                   .order("created_at", desc=False).range(page * 1000, (page + 1) * 1000 - 1).execute())
+            if not res.data:
+                break
+            rows.extend(res.data)
+            if len(res.data) < 1000:
+                break
+            page += 1
+        return rows
+    try:
+        rows = _fetch(_OV_FIELDS + "," + _LOG_EXTRA_FIELDS)
+    except Exception:
+        rows = _fetch(_OV_FIELDS)
+    return _to_cn(pd.DataFrame(rows), LOGS_COLS) if rows else pd.DataFrame()
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _overview_cells(date_from: str, date_to: str) -> dict:
+    """{姓名: {'YYYY-MM-DD': [報告標題, ...]}}，同一天依時間由早到晚"""
+    df = _load_logs_range(date_from)
+    if df.empty or "時間" not in df.columns or "姓名" not in df.columns:
+        return {}
+    df = df[df["時間"].astype(str).str[:10] <= date_to]
+    if "結果" in df.columns:
+        df = df[~df["結果"].astype(str).str.contains("📖", na=False)]
+    if df.empty:
+        return {}
+    df_a = load_assignments()
+    _aj = df_a.to_json(orient="records") if not df_a.empty else "[]"
+    _qt = _build_qid_task_map_all(_aj)
+    df = df.copy()
+    df["_task"] = df["題目ID"].apply(
+        lambda x: _qt.get(str(x).strip(), _qt.get(re.sub(r'^[A-Za-z]_', '', str(x).strip()), "")))
+    if "任務名稱" in df.columns:
+        _miss = df["_task"] == ""
+        df.loc[_miss, "_task"] = df.loc[_miss, "任務名稱"].fillna("").astype(str).apply(_strip_task_date)
+    out = {}
+    for nm, g in df.groupby(df["姓名"].astype(str).str.strip()):
+        for s in reversed(_build_sessions(g)):
+            d = s["start"].strftime("%Y-%m-%d")
+            out.setdefault(nm, {}).setdefault(d, []).append(_session_summary(s))
+    return out
+
+def _render_overview_tab():
+    import html as _html
+    _now = get_now()
+    _today_d = _now.date()
+    _dates = [_today_d - timedelta(days=i) for i in range(_OV_DAYS)]
+    _d_from = _dates[-1].strftime("%Y-%m-%d")
+    _d_to = _today_d.strftime("%Y-%m-%d")
+
+    st.subheader("📅 學習總覽（最近 30 天）")
+    st.caption("左邊是學生、上面是日期（第一欄是今天，往右越早）。每一格列出當天每一次練習／測驗的報告標題；點學生名字會在新分頁開啟他的學習報告。")
+
+    df_s = load_students()
+    if df_s.empty or "姓名" not in df_s.columns:
+        st.info("讀不到 students 工作表")
+        return
+    df_s = df_s[df_s["姓名"].astype(str).str.strip() != ""].copy()
+    if "分組" not in df_s.columns:
+        df_s["分組"] = ""
+    if "學年" not in df_s.columns:
+        df_s["學年"] = ""
+    df_s = df_s[~df_s["分組"].astype(str).str.strip().str.upper().isin(["ADMIN", "TEACHER"])]
+    df_s["_sy"] = pd.to_numeric(df_s["學年"].astype(str).str.strip(), errors="coerce").round().astype("Int64")
+    df_s["_gp"] = df_s["分組"].astype(str).str.strip()
+    df_s["_nm"] = df_s["姓名"].astype(str).str.strip()
+    df_s = df_s.sort_values(["_sy", "_gp", "_nm"])
+
+    _f1, _f2, _f3, _f4 = st.columns([2, 2, 1.2, 1])
+    _yrs = [int(v) for v in df_s["_sy"].dropna().unique().tolist()]
+    _sel_y = _f1.multiselect("學年", sorted(_yrs), key="ov_years", placeholder="全部學年")
+    _gps = sorted([g for g in df_s["_gp"].unique().tolist() if g])
+    _sel_g = _f2.multiselect("組別", _gps, key="ov_groups", placeholder="全部組別")
+    _only = _f3.toggle("只看有作答的", value=False, key="ov_only_active")
+    if _f4.button("🔄 重新讀取", key="ov_refresh", use_container_width=True):
+        _load_logs_range.clear()
+        _overview_cells.clear()
+        st.session_state["ov_loaded"] = True
+    if _sel_y:
+        df_s = df_s[df_s["_sy"].isin(_sel_y)]
+    if _sel_g:
+        df_s = df_s[df_s["_gp"].isin(_sel_g)]
+
+    if not st.session_state.get("ov_loaded"):
+        st.info("要讀取全班最近 30 天的作答紀錄，第一次需要幾秒鐘。")
+        if st.button("📥 產生學習總覽表", type="primary", key="ov_load_btn"):
+            st.session_state["ov_loaded"] = True
+            st.rerun()
+        return
+
+    with st.spinner("讀取全班最近 30 天的作答紀錄…"):
+        cells = _overview_cells(_d_from, _d_to)
+
+    if _only:
+        df_s = df_s[df_s["_nm"].isin(list(cells.keys()))]
+    if df_s.empty:
+        st.info("沒有符合條件的學生")
+        return
+
+    try:
+        _dark = str(st.context.theme.type) == "dark"
+    except Exception:
+        _dark = False
+    _bg = "#0e1117" if _dark else "#ffffff"
+    _hbg = "#262730" if _dark else "#f0f2f6"
+    _base = _dash_base_url()
+
+    _css = f"""<style>
+.ovwrap {{ overflow:auto; max-height:78vh; border:1px solid rgba(128,128,128,.35); border-radius:8px; }}
+.ovtbl {{ border-collapse:separate; border-spacing:0; font-size:12.5px; }}
+.ovtbl th, .ovtbl td {{ border-right:1px solid rgba(128,128,128,.25); border-bottom:1px solid rgba(128,128,128,.25);
+  padding:4px 6px; vertical-align:top; text-align:left; }}
+.ovtbl thead th {{ position:sticky; top:0; z-index:2; background:{_hbg}; white-space:nowrap; min-width:64px; }}
+.ovtbl th.ovtoday {{ background:#ff4b4b; color:#fff; }}
+.ovtbl td.ovname, .ovtbl th.ovname {{ position:sticky; left:0; z-index:1; background:{_bg}; white-space:nowrap; min-width:110px; }}
+.ovtbl thead th.ovname {{ z-index:3; background:{_hbg}; }}
+.ovtbl td.ovhas {{ background:rgba(48,164,108,.10); min-width:250px; max-width:330px; }}
+.ovtbl td.ovnone {{ background:transparent; }}
+.ovl {{ padding:2px 0; border-bottom:1px dashed rgba(128,128,128,.3); line-height:1.35; }}
+.ovl:last-child {{ border-bottom:none; }}
+.ovbadge {{ color:#fff; padding:1px 8px; border-radius:6px; text-decoration:none !important; font-weight:600; }}
+.ovsub {{ font-size:11px; opacity:.7; }}
+</style>"""
+
+    _h = ["<div class='ovwrap'><table class='ovtbl'><thead><tr><th class='ovname'>學生</th>"]
+    for i, d in enumerate(_dates):
+        lbl = f"{d.strftime('%m-%d')}（{_WEEKDAY_CN[d.weekday()]}）"
+        if i == 0:
+            _h.append(f"<th class='ovtoday'>今天 {lbl}</th>")
+        else:
+            _h.append(f"<th>{lbl}</th>")
+    _h.append("</tr></thead><tbody>")
+    _csv_rows = []
+    for _, r in df_s.iterrows():
+        nm = r["_nm"]
+        sy = "" if pd.isna(r["_sy"]) else str(int(r["_sy"]))
+        color, _ = _year_color(sy)
+        my = cells.get(nm, {})
+        n_days = sum(1 for d in _dates if my.get(d.strftime("%Y-%m-%d")))
+        url = _html.escape(_base + _make_view_query(nm), quote=True)
+        _h.append(
+            f"<tr><td class='ovname'><a class='ovbadge' style='background:{color}' href='{url}' target='_blank'>"
+            f"{_html.escape(nm)}</a><div class='ovsub'>{sy}學年 {_html.escape(r['_gp'])}　📆{n_days}天</div></td>")
+        _csv = {"學年": sy, "組別": r["_gp"], "姓名": nm}
+        for d in _dates:
+            ds = d.strftime("%Y-%m-%d")
+            lines = my.get(ds, [])
+            _csv[ds] = "\n".join(lines)
+            if lines:
+                _h.append("<td class='ovhas'>" + "".join(f"<div class='ovl'>{_html.escape(x)}</div>" for x in lines) + "</td>")
+            else:
+                _h.append("<td class='ovnone'></td>")
+        _h.append("</tr>")
+        _csv_rows.append(_csv)
+    _h.append("</tbody></table></div>")
+
+    _active = sum(1 for nm in df_s["_nm"] if cells.get(nm))
+    st.caption(f"輸出時間：{_now.strftime('%Y-%m-%d %H:%M')}　｜　{_d_from} ～ {_d_to}　｜　學生 {len(df_s)} 位，其中 {_active} 位這 30 天有作答")
+    st.markdown(_css + "".join(_h), unsafe_allow_html=True)
+    st.download_button("⬇️ 下載這張表（CSV，可用 Excel 開）",
+                       pd.DataFrame(_csv_rows).to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"學習總覽_{_d_to}.csv", mime="text/csv", key="ov_csv")
+
 # ── Tab（教師/Admin 視角：全班）──────────────────────────────────────────────
-tab_report, tab_tasks = st.tabs(["👩‍🎓 學生學習報告", "📋 學生任務列表"])
+tab_overview, tab_report, tab_tasks = st.tabs(["📅 學習總覽", "👩‍🎓 學生學習報告", "📋 學生任務列表"])
+
+with tab_overview:
+    _render_overview_tab()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Tab2：全能英文學習報告
