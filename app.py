@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.23                                     ║
+# ║  dashboard.py  V2.24                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.23"
+DASHBOARD_VERSION = "2.24"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -1068,10 +1068,9 @@ def _render_overview_tab():
     _bg = "#0e1117" if _dark else "#ffffff"
     _hbg = "#262730" if _dark else "#f0f2f6"
     _base = _dash_base_url()
-    # V2.23：單字／文法／閱讀小計的期間
-    _per = st.radio("單字／文法／閱讀小計期間", [7, 14, 30], index=2, horizontal=True,
-                    format_func=lambda x: f"最近 {x} 天", key="ov_stat_days")
-    _per_ds = {d.strftime("%Y-%m-%d") for d in _dates[:_per]}
+    # V2.24：作答天數和單字／文法／閱讀都同時列出 7／14／30 天
+    _PERS = (7, 14, 30)
+    _per_ds = {k: {d.strftime("%Y-%m-%d") for d in _dates[:k]} for k in _PERS}
 
     _css = f"""<style>
 .ovwrap {{ overflow:auto; max-height:78vh; border:1px solid rgba(128,128,128,.35); border-radius:8px; }}
@@ -1089,6 +1088,11 @@ def _render_overview_tab():
 .ovbadge {{ color:#fff; padding:1px 8px; border-radius:6px; text-decoration:none !important; font-weight:600; }}
 .ovsub {{ font-size:11px; opacity:.7; }}
 .ovst {{ font-size:11.5px; line-height:1.4; }}
+.ovtbl table.ovmini {{ border-collapse:collapse; margin-top:3px; }}
+.ovtbl .ovmini td, .ovtbl .ovmini th {{ position:static; border:none; background:transparent; padding:1px 5px 1px 0;
+  min-width:0; font-size:11px; white-space:nowrap; text-align:left; font-weight:normal; }}
+.ovtbl .ovmini th {{ opacity:.65; }}
+.ovpr {{ color:#6b7280; font-weight:normal; }}
 </style>"""
 
     _h = ["<div class='ovwrap'><table class='ovtbl'><thead><tr><th class='ovname'>學生</th>"]
@@ -1106,32 +1110,41 @@ def _render_overview_tab():
         color, _ = _year_color(sy)
         my = cells.get(nm, {})
         # V2.23：7／14／30 天內有作答的天數
-        n7, n14, n30 = (sum(1 for d in _dates[:k] if my.get(d.strftime("%Y-%m-%d"))) for k in (7, 14, 30))
+        _nd = {k: sum(1 for d in _dates[:k] if my.get(d.strftime("%Y-%m-%d"))) for k in _PERS}
+        n7, n14, n30 = _nd[7], _nd[14], _nd[30]
         url = _html.escape(_base + _make_view_query(nm), quote=True)
-        # V2.19：30 天單字／文法／閱讀小計（測驗題數＋正確率；綠≥80%、黃60–79%、紅<60%）
-        _st_html, _st_csv = "", {}
+        # V2.24：小表格＝列：作答天數／單字／文法／閱讀，欄：7／14／30 天（測驗題數＋正確率；綠≥80%、黃60–79%、紅<60%）
+        _st_csv = {}
+        _mini = ["<table class='ovmini'><tr><th></th>" + "".join(f"<th>{k}天</th>" for k in _PERS) + "</tr>",
+                 "<tr><td>📆天數</td>" + "".join(f"<td>{_nd[k]}</td>" for k in _PERS) + "</tr>"]
         for c in _OV_CATS:
-            ok = err = pr = 0
-            for _dd, _dv in cats.get(nm, {}).items():
-                if _dd in _per_ds and c in _dv:
-                    ok += _dv[c][0]; err += _dv[c][1]; pr += _dv[c][2]
-            tst = ok + err
-            if tst:
-                rate = ok / tst * 100
-                col = "#30a46c" if rate >= 80 else ("#d4a700" if rate >= 60 else "#e5484d")
-                txt = f"{tst}題 {rate:.0f}%" + (f"＋練習{pr}" if pr else "")
-            elif pr:
-                col, txt = "#6b7280", f"練習{pr}題"
-            else:
-                col, txt = "#9ca3af", "—"
-            _st_html += f"<div class='ovst'>{_OV_CAT_ICON[c]}{c} <span style='color:{col};font-weight:600'>{txt}</span></div>"
-            _st_csv[c] = "" if txt == "—" else txt
+            _row = f"<tr><td>{_OV_CAT_ICON[c]}{c}</td>"
+            for k in _PERS:
+                ok = err = pr = 0
+                for _dd, _dv in cats.get(nm, {}).items():
+                    if _dd in _per_ds[k] and c in _dv:
+                        ok += _dv[c][0]; err += _dv[c][1]; pr += _dv[c][2]
+                tst = ok + err
+                if tst:
+                    rate = ok / tst * 100
+                    col = "#30a46c" if rate >= 80 else ("#d4a700" if rate >= 60 else "#e5484d")
+                    _cell = f"<span style='color:{col};font-weight:600'>{tst}題 {rate:.0f}%</span>" + (f"<span class='ovpr'>＋練{pr}</span>" if pr else "")
+                    txt = f"{tst}題 {rate:.0f}%" + (f"＋練習{pr}" if pr else "")
+                elif pr:
+                    _cell = f"<span class='ovpr'>練{pr}</span>"
+                    txt = f"練習{pr}題"
+                else:
+                    _cell, txt = "<span class='ovpr'>—</span>", ""
+                _row += f"<td>{_cell}</td>"
+                _st_csv[f"{c}（{k}天）"] = txt
+            _mini.append(_row + "</tr>")
+        _st_html = "".join(_mini) + "</table>"
         _h.append(
             f"<tr><td class='ovname'><a class='ovbadge' style='background:{color}' href='{url}' target='_blank'>"
             f"{_html.escape(nm)}</a><div class='ovsub'>{sy}學年 {_html.escape(r['_gp'])}</div>"
-            f"<div class='ovsub'>📆 作答天數 7天:{n7}｜14天:{n14}｜30天:{n30}</div>{_st_html}</td>")
+            f"{_st_html}</td>")
         _csv = {"學年": sy, "組別": r["_gp"], "姓名": nm, "7天作答天數": n7, "14天作答天數": n14, "30天作答天數": n30,
-                **{f"{k}（{_per}天）": v for k, v in _st_csv.items()}}
+                **_st_csv}
         for d in _dates:
             ds = d.strftime("%Y-%m-%d")
             lines = my.get(ds, [])
@@ -1146,7 +1159,7 @@ def _render_overview_tab():
 
     _active = sum(1 for nm in df_s["_nm"] if cells.get(nm))
     st.caption(f"輸出時間：{_now.strftime('%Y-%m-%d %H:%M')}　｜　{_d_from} ～ {_d_to}　｜　學生 {len(df_s)} 位，其中 {_active} 位這 30 天有作答")
-    st.caption("🔤單字＝單字題　📝文法＝單選、重組　📖閱讀＝閱讀單句、閱讀重組　｜　名字下面是作答天數，以及所選期間的測驗題數和正確率：綠≥80%、黃60–79%、紅<60%")
+    st.caption("🔤單字＝單字題　📝文法＝單選、重組　📖閱讀＝閱讀單句、閱讀重組　｜　名字下面的小表格是最近 7／14／30 天的作答天數、測驗題數和正確率（＋練＝練習題數）：綠≥80%、黃60–79%、紅<60%")
     st.markdown(_css + "".join(_h), unsafe_allow_html=True)
     st.download_button("⬇️ 下載這張表（CSV，可用 Excel 開）",
                        pd.DataFrame(_csv_rows).to_csv(index=False).encode("utf-8-sig"),
