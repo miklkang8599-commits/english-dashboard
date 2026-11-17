@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.21                                     ║
+# ║  dashboard.py  V2.22                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.21"
+DASHBOARD_VERSION = "2.22"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -165,14 +165,37 @@ def load_supabase_students():
         st.error(f"載入學生資料失敗：{e}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=600)
+# V2.22：讀取失敗時不再把「空名單」快取 10 分鐘；會自動重試一次，並記下錯誤原因
+@st.cache_data(ttl=600, show_spinner=False)
+def _load_students_cached():
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    df   = conn.read(worksheet="students", ttl=600).fillna("").astype(str)
+    if df.empty:
+        raise RuntimeError("students 工作表沒有資料")
+    return df
+
 def load_students():
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df   = conn.read(worksheet="students", ttl=600).fillna("").astype(str)
-        return df
-    except:
-        return pd.DataFrame()
+    for _try in range(2):
+        try:
+            df = _load_students_cached()
+            st.session_state.pop("_students_err", None)
+            return df
+        except Exception as e:
+            st.session_state["_students_err"] = f"{type(e).__name__}: {e}"[:300]
+            _load_students_cached.clear()
+            if _try == 0:
+                import time as _t_retry
+                _t_retry.sleep(1.5)
+    return pd.DataFrame()
+
+load_students.clear = _load_students_cached.clear
+
+def _students_load_failed(key: str):
+    _err = st.session_state.get("_students_err", "")
+    st.warning("讀不到 students 工作表" + (f"（{_err}）" if _err else "（工作表沒有「姓名」欄）"))
+    if st.button("🔄 重新讀取學生名單", key=f"stu_reload_{key}"):
+        load_students.clear()
+        st.rerun()
 
 # 題型工作表對應：content=題目欄, answer=答案欄
 _QTYPE_SHEETS = {
@@ -977,7 +1000,7 @@ def _render_overview_tab():
 
     df_s = load_students()
     if df_s.empty or "姓名" not in df_s.columns:
-        st.info("讀不到 students 工作表")
+        _students_load_failed("ov")
         return
     df_s = df_s[df_s["姓名"].astype(str).str.strip() != ""].copy()
     if "分組" not in df_s.columns:
@@ -1133,7 +1156,7 @@ with tab_report:
         st.rerun()
     df_sl = load_students()
     if df_sl.empty or "姓名" not in df_sl.columns:
-        st.info("讀不到 students 工作表")
+        _students_load_failed("sl")
     else:
         df_sl = df_sl[df_sl["姓名"].astype(str).str.strip() != ""].copy()
         # V2.11：帳號是 4 位數（試算表可能讀成 85.0 → 補回 0085）
