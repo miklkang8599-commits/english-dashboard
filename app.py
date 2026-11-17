@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.19                                     ║
+# ║  dashboard.py  V2.20                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.19"
+DASHBOARD_VERSION = "2.20"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -990,7 +990,7 @@ def _render_overview_tab():
     df_s["_nm"] = df_s["姓名"].astype(str).str.strip()
     df_s = df_s.sort_values(["_sy", "_gp", "_nm"])
 
-    _f1, _f2, _f3, _f4 = st.columns([2, 2, 1.2, 1])
+    _f1, _f2, _f5, _f3, _f4 = st.columns([1.4, 1.4, 3, 1.2, 1])
     _yrs = [int(v) for v in df_s["_sy"].dropna().unique().tolist()]
     _sel_y = _f1.multiselect("學年", sorted(_yrs), key="ov_years", placeholder="全部學年")
     _gps = sorted([g for g in df_s["_gp"].unique().tolist() if g])
@@ -1004,6 +1004,13 @@ def _render_overview_tab():
         df_s = df_s[df_s["_sy"].isin(_sel_y)]
     if _sel_g:
         df_s = df_s[df_s["_gp"].isin(_sel_g)]
+    # V2.20：可再挑選學生（選項依學年、組別縮小；可打字搜尋名字）
+    _nm_opts = list(dict.fromkeys(df_s["_nm"].tolist()))
+    if st.session_state.get("ov_names"):
+        st.session_state["ov_names"] = [n for n in st.session_state["ov_names"] if n in _nm_opts]
+    _sel_n = _f5.multiselect("學生", _nm_opts, key="ov_names", placeholder="全部學生（可打字搜尋名字）")
+    if _sel_n:
+        df_s = df_s[df_s["_nm"].isin(_sel_n)]
 
     if not st.session_state.get("ov_loaded"):
         st.info("要讀取全班最近 30 天的作答紀錄，第一次需要幾秒鐘。")
@@ -1105,7 +1112,7 @@ def _render_overview_tab():
                        file_name=f"學習總覽_{_d_to}.csv", mime="text/csv", key="ov_csv")
 
 # ── Tab（教師/Admin 視角：全班）──────────────────────────────────────────────
-tab_overview, tab_report, tab_tasks = st.tabs(["📅 學習總覽", "👩‍🎓 學生學習報告", "📋 學生任務列表"])
+tab_report, tab_tasks, tab_overview = st.tabs(["👩‍🎓 學生學習報告", "📋 學生任務列表", "📅 學習總覽"])  # V2.20：學習總覽放最後
 
 with tab_overview:
     _render_overview_tab()
