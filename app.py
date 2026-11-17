@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.24                                     ║
+# ║  dashboard.py  V2.25                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.24"
+DASHBOARD_VERSION = "2.25"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -622,6 +622,10 @@ def _year_color(sy):
     except Exception:
         return ("#6b7280", "⚪")
 
+def _year_fg(color: str) -> str:
+    """V2.25：黃色底用深色字，其餘用白字（名字比較好讀）"""
+    return "#1f2937" if color in ("#d4a700",) else "#ffffff"
+
 def _student_year(name: str) -> str:
     try:
         df = load_students()
@@ -779,7 +783,7 @@ if _role == "student":
     _sy_me = _student_year(_name)
     _set_browser_tab(_name, _sy_me)
     _c_me, _e_me = _year_color(_sy_me)
-    st.markdown(f"<h3>📋 <span style='background:{_c_me};color:#fff;padding:2px 12px;border-radius:8px'>{_name}</span>"
+    st.markdown(f"<h3>📋 <span style='background:{_c_me};color:{_year_fg(_c_me)};padding:2px 12px;border-radius:8px'>{_name}</span>"
                 f"{('　' + _e_me + ' ' + _sy_me + ' 學年') if _sy_me else ''}　的學習紀錄</h3>", unsafe_allow_html=True)
 
     tab_stu_rpt, tab_stu_task = st.tabs(["📊 我的學習報告", "📋 我的任務列表"])
@@ -1085,7 +1089,7 @@ def _render_overview_tab():
 .ovtbl td.ovnone {{ background:transparent; }}
 .ovl {{ padding:2px 0; border-bottom:1px dashed rgba(128,128,128,.3); line-height:1.35; }}
 .ovl:last-child {{ border-bottom:none; }}
-.ovbadge {{ color:#fff; padding:1px 8px; border-radius:6px; text-decoration:none !important; font-weight:600; }}
+.ovbadge, .ovbadge:link, .ovbadge:visited, .ovbadge:hover {{ padding:2px 9px; border-radius:6px; text-decoration:none !important; font-weight:700; font-size:14px; }}
 .ovsub {{ font-size:11px; opacity:.7; }}
 .ovst {{ font-size:11.5px; line-height:1.4; }}
 .ovtbl table.ovmini {{ border-collapse:collapse; margin-top:3px; }}
@@ -1140,7 +1144,7 @@ def _render_overview_tab():
             _mini.append(_row + "</tr>")
         _st_html = "".join(_mini) + "</table>"
         _h.append(
-            f"<tr><td class='ovname'><a class='ovbadge' style='background:{color}' href='{url}' target='_blank'>"
+            f"<tr><td class='ovname'><a class='ovbadge' style='background:{color};color:{_year_fg(color)} !important' href='{url}' target='_blank'>"
             f"{_html.escape(nm)}</a><div class='ovsub'>{sy}學年 {_html.escape(r['_gp'])}</div>"
             f"{_st_html}</td>")
         _csv = {"學年": sy, "組別": r["_gp"], "姓名": nm, "7天作答天數": n7, "14天作答天數": n14, "30天作答天數": n30,
