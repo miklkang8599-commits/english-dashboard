@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.26                                     ║
+# ║  dashboard.py  V2.27                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.26"
+DASHBOARD_VERSION = "2.27"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -681,6 +681,13 @@ def _make_view_query(name: str) -> str:
     exp = int(_time_mod.time()) + _VIEW_TTL_SEC
     return f"?view_stu={_url_quote(name)}&exp={exp}&sig={_view_sig(name, exp)}"
 
+def _parent_sig(name: str, exp: int) -> str:
+    """V2.27：家長連結（進度表 Apps Script 產生）用的簽章，金鑰＝secrets 的 PARENT_LINK_KEY"""
+    k = str(st.secrets.get("PARENT_LINK_KEY", "") or "")
+    if not k:
+        return ""
+    return _hmac.new(k.encode(), f"P|{name}|{exp}".encode(), _hashlib.sha256).hexdigest()[:32]
+
 def _dash_base_url() -> str:
     u = str(st.secrets.get("DASHBOARD_URL", "") or "")
     if not u:
@@ -702,7 +709,9 @@ try:
     _qp = st.query_params
     _vs, _ve, _vg = _qp.get("view_stu"), _qp.get("exp"), _qp.get("sig")
     if _vs and _ve and _vg and st.session_state.get("dash_view_stu") != _vs:
-        if int(_ve) >= int(_time_mod.time()) and _hmac.compare_digest(_view_sig(_vs, int(_ve)), str(_vg)):
+        _ps = _parent_sig(_vs, int(_ve))
+        if int(_ve) >= int(_time_mod.time()) and (_hmac.compare_digest(_view_sig(_vs, int(_ve)), str(_vg))
+                                                  or (_ps and _hmac.compare_digest(_ps, str(_vg)))):
             _grp_v = ""
             _df_sv = load_students()
             if not _df_sv.empty and "姓名" in _df_sv.columns and "分組" in _df_sv.columns:
