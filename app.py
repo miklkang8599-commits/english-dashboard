@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.20                                     ║
+# ║  dashboard.py  V2.21                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.20"
+DASHBOARD_VERSION = "2.21"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -994,7 +994,10 @@ def _render_overview_tab():
     _yrs = [int(v) for v in df_s["_sy"].dropna().unique().tolist()]
     _sel_y = _f1.multiselect("學年", sorted(_yrs), key="ov_years", placeholder="全部學年")
     _gps = sorted([g for g in df_s["_gp"].unique().tolist() if g])
-    _sel_g = _f2.multiselect("組別", _gps, key="ov_groups", placeholder="全部組別")
+    # V2.21：組別選項後面列出該組學生名字
+    _gp_names = df_s.groupby("_gp")["_nm"].apply(lambda s: "、".join(dict.fromkeys(s.tolist()))).to_dict()
+    _sel_g = _f2.multiselect("組別", _gps, key="ov_groups", placeholder="全部組別",
+                             format_func=lambda g: f"{g}（{_gp_names.get(g, '')}）" if _gp_names.get(g) else g)
     _only = _f3.toggle("只看有作答的", value=False, key="ov_only_active")
     if _f4.button("🔄 重新讀取", key="ov_refresh", use_container_width=True):
         _load_logs_range.clear()
