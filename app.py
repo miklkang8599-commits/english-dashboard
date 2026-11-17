@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.27                                     ║
+# ║  dashboard.py  V2.28                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.27"
+DASHBOARD_VERSION = "2.28"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -681,9 +681,28 @@ def _make_view_query(name: str) -> str:
     exp = int(_time_mod.time()) + _VIEW_TTL_SEC
     return f"?view_stu={_url_quote(name)}&exp={exp}&sig={_view_sig(name, exp)}"
 
+def _secret_any(k: str, _node=None, _depth: int = 0) -> str:
+    """V2.28：先找最上層，再往 [區段] 裡找（金鑰被貼在某個 [區段] 底下也讀得到），前後空白去掉"""
+    node = st.secrets if _node is None else _node
+    try:
+        if k in node and not hasattr(node[k], "keys"):
+            v = str(node[k] or "").strip()
+            if v:
+                return v
+        if _depth < 3:
+            for _kk in list(node.keys()):
+                _sub = node[_kk]
+                if hasattr(_sub, "keys"):
+                    v = _secret_any(k, _sub, _depth + 1)
+                    if v:
+                        return v
+    except Exception:
+        pass
+    return ""
+
 def _parent_sig(name: str, exp: int) -> str:
     """V2.27：家長連結（進度表 Apps Script 產生）用的簽章，金鑰＝secrets 的 PARENT_LINK_KEY"""
-    k = str(st.secrets.get("PARENT_LINK_KEY", "") or "")
+    k = _secret_any("PARENT_LINK_KEY")
     if not k:
         return ""
     return _hmac.new(k.encode(), f"P|{name}|{exp}".encode(), _hashlib.sha256).hexdigest()[:32]
@@ -721,7 +740,13 @@ try:
             st.session_state.update({"dash_logged_in": True, "dash_role": "student", "dash_name": _vs,
                                      "dash_group": _grp_v, "dash_view_stu": _vs})
         else:
-            st.warning("⚠️ 學生報告連結已過期或無效，請回老師的學生名單重新點選。")
+            # V2.28：分開顯示原因，方便排查
+            if int(_ve) < int(_time_mod.time()):
+                st.warning("⚠️ 學生報告連結已過期，請向老師索取新的連結。")
+            elif not _secret_any("PARENT_LINK_KEY"):
+                st.warning("⚠️ 學生報告連結無效（dashboard 的 Secrets 讀不到 PARENT_LINK_KEY）。")
+            else:
+                st.warning("⚠️ 學生報告連結無效（簽章不符：請確認 Streamlit 和 Apps Script 的 PARENT_LINK_KEY 一模一樣）。")
 except Exception:
     pass
 
