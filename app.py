@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.35                                     ║
+# ║  dashboard.py  V2.36                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.35"
+DASHBOARD_VERSION = "2.36"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -772,6 +772,45 @@ def _cat_tag(g: pd.DataFrame) -> str:
     cs = [c for c in _OV_CAT_ICON if c in have]
     return ("【" + "＋".join(_OV_CAT_ICON[c] + c for c in cs) + "】") if cs else ""
 
+# V2.36：閱讀題對應到哪一篇文章（閱讀單句工作表的「題組」欄），統計顯示「幾篇」
+_ART_KEYS = ["版本", "年度", "冊編號", "單元", "課編號", "句編號"]
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _rm_group_map() -> dict:
+    out = {}
+    try:
+        df = load_question_sheet("閱讀單句")
+    except Exception:
+        return out
+    if df is None or df.empty or "題組" not in df.columns or any(c not in df.columns for c in _ART_KEYS):
+        return out
+    for r in df[_ART_KEYS + ["題組"]].itertuples(index=False):
+        g = str(r[-1]).strip()
+        if g:
+            out["|".join(_norm(x).replace("ㄧ", "一") for x in r[:-1])] = g
+    return out
+
+def _article_id(qid, gm: dict) -> str:
+    s = str(qid).strip()
+    g = ""
+    try:
+        p = _parse_qid(s) or {}
+        g = gm.get("|".join(_norm(p.get(c, "")).replace("ㄧ", "一") for c in _ART_KEYS), "")
+    except Exception:
+        g = ""
+    return g or s
+
+def _add_art(df: pd.DataFrame) -> pd.DataFrame:
+    df["_art"] = ""
+    try:
+        _isr = df["_cat"] == "閱讀"
+        if _isr.any():
+            _gm = _rm_group_map()
+            df.loc[_isr, "_art"] = df.loc[_isr, "題目ID"].apply(lambda x: _article_id(x, _gm))
+    except Exception:
+        pass
+    return df
+
 # V2.31：學生報告「歷次作答」上方的 8 天總覽（今天＋前 7 天；格式同學習總覽，名字下是 7／14／30 天小計）
 _WEEK_DAYS = 8
 
@@ -794,6 +833,7 @@ def _render_student_week(stu_name: str):
         if not df.empty:
             df = df.copy()
             df["_cat"] = df["題目ID"].apply(_qcat)
+            df = _add_art(df)  # V2.36
             df_a = load_assignments()
             _aj = df_a.to_json(orient="records") if not df_a.empty else "[]"
             _qt = _build_qid_task_map_all(_aj)
@@ -807,7 +847,7 @@ def _render_student_week(stu_name: str):
             for (_dd, _cc), _gg in df.groupby([_dser, df["_cat"]]):
                 if _cc in _OV_CATS:
                     _r2 = res.loc[_gg.index]
-                    cat.setdefault(_dd, {})[_cc] = (int((_r2 == "✅").sum()), int((_r2 == "❌").sum()), int((_r2 == "練習").sum()))
+                    cat.setdefault(_dd, {})[_cc] = (int((_r2 == "✅").sum()), int((_r2 == "❌").sum()), int((_r2 == "練習").sum()), set(_gg["_art"].tolist()) - {""})
             for s in reversed(_build_sessions(df)):
                 cells.setdefault(s["start"].strftime("%Y-%m-%d"), []).append(_cat_tag(s["df"]) + _session_summary(s))
 
@@ -829,17 +869,17 @@ def _render_student_week(stu_name: str):
     for c in _OV_CATS:
         _row = f"<tr><td>{_OV_CAT_ICON[c]}{c}</td>"
         for k in _PERS:
-            ok = err = pr = 0
+            ok = err = pr = 0; _arts = set()
             for _dd, _dv in cat.items():
                 if _dd in _per_ds[k] and c in _dv:
-                    ok += _dv[c][0]; err += _dv[c][1]; pr += _dv[c][2]
+                    ok += _dv[c][0]; err += _dv[c][1]; pr += _dv[c][2]; _arts |= (set(_dv[c][3]) if len(_dv[c]) > 3 else set())
             tst = ok + err
             if tst:
                 rate = ok / tst * 100
                 col = "#30a46c" if rate >= 80 else ("#d4a700" if rate >= 60 else "#e5484d")
-                _cell = f"<span style='color:{col};font-weight:600'>{tst}題 {rate:.0f}%</span>" + (f"<span class='ovpr'>＋練{pr}</span>" if pr else "")
+                _cell = f"<span style='color:{col};font-weight:600'>{(str(len(_arts)) + '篇 ') if _arts else ''}{tst}題 {rate:.0f}%</span>" + (f"<span class='ovpr'>＋練{pr}</span>" if pr else "")
             elif pr:
-                _cell = f"<span class='ovpr'>練{pr}</span>"
+                _cell = f"<span class='ovpr'>{(str(len(_arts)) + '篇 ') if _arts else ''}練{pr}</span>"
             else:
                 _cell = "<span class='ovpr'>—</span>"
             _row += f"<td>{_cell}</td>"
@@ -1161,6 +1201,7 @@ def _overview_cells(date_from: str, date_to: str) -> dict:
         return {}
     df = df.copy()
     df["_cat"] = df["題目ID"].apply(_qcat)
+    df = _add_art(df)  # V2.36
     df_a = load_assignments()
     _aj = df_a.to_json(orient="records") if not df_a.empty else "[]"
     _qt = _build_qid_task_map_all(_aj)
@@ -1180,7 +1221,7 @@ def _overview_cells(date_from: str, date_to: str) -> dict:
             if _cc not in _OV_CATS:
                 continue
             _r2 = res.loc[_gg.index]
-            cat[nm].setdefault(_dd, {})[_cc] = (int((_r2 == "✅").sum()), int((_r2 == "❌").sum()), int((_r2 == "練習").sum()))
+            cat[nm].setdefault(_dd, {})[_cc] = (int((_r2 == "✅").sum()), int((_r2 == "❌").sum()), int((_r2 == "練習").sum()), set(_gg["_art"].tolist()) - {""})
         for s in reversed(_build_sessions(g)):
             d = s["start"].strftime("%Y-%m-%d")
             out.setdefault(nm, {}).setdefault(d, []).append(_cat_tag(s["df"]) + _session_summary(s))
@@ -1349,19 +1390,19 @@ def _render_overview_tab():
         for c in _OV_CATS:
             _row = f"<tr><td>{_OV_CAT_ICON[c]}{c}</td>"
             for k in _PERS:
-                ok = err = pr = 0
+                ok = err = pr = 0; _arts = set()
                 for _dd, _dv in cats.get(nm, {}).items():
                     if _dd in _per_ds[k] and c in _dv:
-                        ok += _dv[c][0]; err += _dv[c][1]; pr += _dv[c][2]
+                        ok += _dv[c][0]; err += _dv[c][1]; pr += _dv[c][2]; _arts |= (set(_dv[c][3]) if len(_dv[c]) > 3 else set())
                 tst = ok + err
                 if tst:
                     rate = ok / tst * 100
                     col = "#30a46c" if rate >= 80 else ("#d4a700" if rate >= 60 else "#e5484d")
-                    _cell = f"<span style='color:{col};font-weight:600'>{tst}題 {rate:.0f}%</span>" + (f"<span class='ovpr'>＋練{pr}</span>" if pr else "")
-                    txt = f"{tst}題 {rate:.0f}%" + (f"＋練習{pr}" if pr else "")
+                    _cell = f"<span style='color:{col};font-weight:600'>{(str(len(_arts)) + '篇 ') if _arts else ''}{tst}題 {rate:.0f}%</span>" + (f"<span class='ovpr'>＋練{pr}</span>" if pr else "")
+                    txt = f"{(str(len(_arts)) + '篇 ') if _arts else ''}{tst}題 {rate:.0f}%" + (f"＋練習{pr}" if pr else "")
                 elif pr:
-                    _cell = f"<span class='ovpr'>練{pr}</span>"
-                    txt = f"練習{pr}題"
+                    _cell = f"<span class='ovpr'>{(str(len(_arts)) + '篇 ') if _arts else ''}練{pr}</span>"
+                    txt = f"{(str(len(_arts)) + '篇 ') if _arts else ''}練習{pr}題"
                 else:
                     _cell, txt = "<span class='ovpr'>—</span>", ""
                 _row += f"<td>{_cell}</td>"
