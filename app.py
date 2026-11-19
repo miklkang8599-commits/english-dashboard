@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.37                                     ║
+# ║  dashboard.py  V2.38                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.37"
+DASHBOARD_VERSION = "2.38"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -73,7 +73,7 @@ def _to_cn(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
     return df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
 
 # ── 資料載入（輕量版，只載入需要的）────────────────────────────────────────────
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=180)  # V2.38：30 秒 → 3 分鐘（按「立即更新」會清掉）
 def load_assignments():
     try:
         sb  = get_supabase()
@@ -113,7 +113,21 @@ def load_logs():
         return pd.DataFrame()
 
 def load_logs_for_student(stu_name: str, date_from: str = None) -> pd.DataFrame:
-    """只撈單一學生的 logs，不用 cache，每次即時取得
+    """V2.38：30 天內的查詢共用同一份（同一學生暫存 45 秒），8 天總覽和歷次作答只查一次 Supabase"""
+    try:
+        _base = (get_now().date() - timedelta(days=29)).strftime("%Y-%m-%d")
+    except Exception:
+        _base = None
+    if _base and date_from and date_from >= _base:
+        df = _load_logs_for_student_raw(stu_name, _base)
+        if not df.empty and "時間" in df.columns:
+            df = df[df["時間"].astype(str).str[:10] >= date_from]
+        return df
+    return _load_logs_for_student_raw(stu_name, date_from)
+
+@st.cache_data(ttl=45, show_spinner=False)
+def _load_logs_for_student_raw(stu_name: str, date_from: str = None) -> pd.DataFrame:
+    """只撈單一學生的 logs（V2.38 起暫存 45 秒）
     date_from：'YYYY-MM-DD'，只撈這天以後的紀錄（None = 全部）
     若 Supabase 已新增 practice_mode / session_start 欄位，一併取回"""
     def _fetch(fields):
@@ -793,7 +807,7 @@ def _cat_tag(g: pd.DataFrame) -> str:
 # V2.36：閱讀題對應到哪一篇文章（閱讀單句工作表的「題組」欄），統計顯示「幾篇」
 _ART_KEYS = ["版本", "年度", "冊編號", "單元", "課編號", "句編號"]
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_resource(ttl=3600, show_spinner=False)  # V2.38：全 App 共用一份、不複製，1 小時更新
 def _rm_group_map() -> dict:
     out = {}
     try:
@@ -1094,12 +1108,15 @@ if _role == "student":
 
         # V2.04：學生在練習系統選好「練習方式」按下開始後，這裡自動重新統計本次作答
         _auto_c1, _auto_c2 = st.columns([3, 1])
-        _auto_on = _auto_c1.toggle("⏱ 自動更新（每 2 分鐘）", value=True, key="stu_auto_refresh")
+        # V2.38：自動更新預設關閉，需要時再選 2 分鐘／5 分鐘
+        _auto_iv = _auto_c1.radio("⏱ 自動更新", ["每 2 分鐘", "每 5 分鐘", "關閉"], index=2, horizontal=True, key="stu_auto_iv")
+        _auto_sec = {"每 2 分鐘": 120, "每 5 分鐘": 300}.get(_auto_iv)
         if _auto_c2.button("🔄 立即更新", type="primary", key="stu_refresh_main", use_container_width=True):
             load_assignments.clear()
+            _load_logs_for_student_raw.clear()
             st.rerun()
 
-        @st.fragment(run_every=120 if _auto_on else None)  # V2.15：改為每 2 分鐘
+        @st.fragment(run_every=_auto_sec)  # V2.38：依上面的選擇
         def _stu_report_fragment():
             df_mine = load_logs_for_student(_name, date_from=_stu_from_str)
             if not df_mine.empty and "時間" in df_mine.columns:
