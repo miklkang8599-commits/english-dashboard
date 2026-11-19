@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.32                                     ║
+# ║  dashboard.py  V2.33                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.32"
+DASHBOARD_VERSION = "2.33"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -890,7 +890,7 @@ def _render_student_week(stu_name: str):
         if lines:
             _h.append("<td class='ovhas'>" + "".join(f"<div class='ovl'>{_html.escape(x)}</div>" for x in lines) + "</td>")
         else:
-            _h.append("<td class='ovnone'></td>")
+            _h.append("<td class='ovnone'><span class='ovpr'>沒有作答</span></td>")  # V2.33
     _h.append("</tr></tbody></table></div>")
     # V2.32：手機（窄螢幕）改直式：名字卡在上，下面每天一格由上往下，不用左右滑
     _v = [f"<div class='ovmob ovtbl'><div class='ovmcard'><span class='ovbadge' style='background:{color}33;border:2px solid {color};color:{_nm_fg}'>"
@@ -904,7 +904,7 @@ def _render_student_week(stu_name: str):
             _v.append(f"<div class='{_cls}'><div class='ovmh'>{_hd}</div><div class='ovmb'>"
                       + "".join(f"<div class='ovl'>{_html.escape(x)}</div>" for x in lines) + "</div></div>")
         else:
-            _v.append(f"<div class='{_cls} ovmempty'><div class='ovmh'>{_hd}　<span class='ovpr'>—</span></div></div>")
+            _v.append(f"<div class='{_cls} ovmempty'><div class='ovmh'>{_hd}　<span class='ovpr'>沒有作答</span></div></div>")
     _v.append("</div>")
     st.markdown(f"#### 🗓️ 最近 {_WEEK_DAYS} 天總覽（{_dates8[-1].strftime('%m-%d')} ～ {_dates8[0].strftime('%m-%d')}）")
     st.caption("每一格是當天每一次練習／測驗的報告標題　｜　名字下面是最近 7／14／30 天的作答天數、測驗題數和正確率（＋練＝練習題數）：綠≥80%、黃60–79%、紅<60%")
