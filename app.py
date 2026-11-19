@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.38                                     ║
+# ║  dashboard.py  V2.39                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.38"
+DASHBOARD_VERSION = "2.39"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -880,7 +880,7 @@ def _render_student_week(stu_name: str):
                 if _cc in _OV_CATS:
                     _r2 = res.loc[_gg.index]
                     cat.setdefault(_dd, {})[_cc] = (int((_r2 == "✅").sum()), int((_r2 == "❌").sum()), int((_r2 == "練習").sum()), set(_gg["_art"].tolist()) - {""})
-            for s in reversed(_build_sessions(df)):
+            for s in _build_sessions(df):  # V2.39：同一天內新的在上（降冪）
                 cells.setdefault(s["start"].strftime("%Y-%m-%d"), []).append(_cat_tag(s["df"]) + _session_summary(s))
 
     try:
