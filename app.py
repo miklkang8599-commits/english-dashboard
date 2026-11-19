@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.31                                     ║
+# ║  dashboard.py  V2.32                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.31"
+DASHBOARD_VERSION = "2.32"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -866,8 +866,19 @@ def _render_student_week(stu_name: str):
   min-width:0; font-size:11px; white-space:nowrap; text-align:left; font-weight:normal; }}
 .ovtbl .ovmini th {{ opacity:.65; }}
 .ovpr {{ color:#6b7280; font-weight:normal; }}
+.ovmob {{ display:none; }}
+.ovmcard {{ padding:6px 8px; border:1px solid rgba(128,128,128,.35); border-radius:8px; margin-bottom:6px; }}
+.ovmday {{ border:1px solid rgba(128,128,128,.3); border-radius:8px; margin-bottom:6px; overflow:hidden; }}
+.ovmh {{ background:{_hbg}; padding:3px 8px; font-weight:600; font-size:13px; }}
+.ovmtoday .ovmh {{ background:#ff4b4b; color:#fff; }}
+.ovmb {{ padding:3px 8px; background:rgba(48,164,108,.10); }}
+.ovmempty .ovmh {{ font-weight:normal; }}
+@media (max-width: 640px) {{
+  .ovwrap.ovwk {{ display:none; }}
+  .ovmob {{ display:block; }}
+}}
 </style>"""
-    _h = ["<div class='ovwrap'><table class='ovtbl'><thead><tr><th class='ovname'>學生</th>"]
+    _h = ["<div class='ovwrap ovwk'><table class='ovtbl'><thead><tr><th class='ovname'>學生</th>"]
     for i, d in enumerate(_dates8):
         lbl = f"{d.strftime('%m-%d')}（{_WEEKDAY_CN[d.weekday()]}）"
         _h.append(f"<th class='ovtoday'>今天 {lbl}</th>" if i == 0 else f"<th>{lbl}</th>")
@@ -881,9 +892,23 @@ def _render_student_week(stu_name: str):
         else:
             _h.append("<td class='ovnone'></td>")
     _h.append("</tr></tbody></table></div>")
+    # V2.32：手機（窄螢幕）改直式：名字卡在上，下面每天一格由上往下，不用左右滑
+    _v = [f"<div class='ovmob ovtbl'><div class='ovmcard'><span class='ovbadge' style='background:{color}33;border:2px solid {color};color:{_nm_fg}'>"
+          f"{_html.escape(stu_name)}</span><div class='ovsub'>{sy}學年 {_html.escape(_gp)}</div>{_st_html}</div>"]
+    for i, d in enumerate(_dates8):
+        _lb = f"{d.strftime('%m-%d')}（{_WEEKDAY_CN[d.weekday()]}）"
+        _hd = ("今天 " + _lb) if i == 0 else _lb
+        _cls = "ovmday ovmtoday" if i == 0 else "ovmday"
+        lines = cells.get(d.strftime("%Y-%m-%d"), [])
+        if lines:
+            _v.append(f"<div class='{_cls}'><div class='ovmh'>{_hd}</div><div class='ovmb'>"
+                      + "".join(f"<div class='ovl'>{_html.escape(x)}</div>" for x in lines) + "</div></div>")
+        else:
+            _v.append(f"<div class='{_cls} ovmempty'><div class='ovmh'>{_hd}　<span class='ovpr'>—</span></div></div>")
+    _v.append("</div>")
     st.markdown(f"#### 🗓️ 最近 {_WEEK_DAYS} 天總覽（{_dates8[-1].strftime('%m-%d')} ～ {_dates8[0].strftime('%m-%d')}）")
     st.caption("每一格是當天每一次練習／測驗的報告標題　｜　名字下面是最近 7／14／30 天的作答天數、測驗題數和正確率（＋練＝練習題數）：綠≥80%、黃60–79%、紅<60%")
-    st.markdown(_css + "".join(_h), unsafe_allow_html=True)
+    st.markdown(_css + "".join(_h) + "".join(_v), unsafe_allow_html=True)
 
 # 老師點的學生連結：驗證簽章後直接以該生身分顯示學習報告
 try:
