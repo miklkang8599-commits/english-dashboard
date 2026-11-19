@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.39                                     ║
+# ║  dashboard.py  V2.40                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.39"
+DASHBOARD_VERSION = "2.40"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -1257,7 +1257,7 @@ def _overview_cells(date_from: str, date_to: str) -> dict:
                 continue
             _r2 = res.loc[_gg.index]
             cat[nm].setdefault(_dd, {})[_cc] = (int((_r2 == "✅").sum()), int((_r2 == "❌").sum()), int((_r2 == "練習").sum()), set(_gg["_art"].tolist()) - {""})
-        for s in reversed(_build_sessions(g)):
+        for s in _build_sessions(g):  # V2.40：學習總覽同一天內也新的在上（降冪）
             d = s["start"].strftime("%Y-%m-%d")
             out.setdefault(nm, {}).setdefault(d, []).append(_cat_tag(s["df"]) + _session_summary(s))
     return {"cells": out, "cat": cat}
