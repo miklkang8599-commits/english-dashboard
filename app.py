@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.30                                     ║
+# ║  dashboard.py  V2.31                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.30"
+DASHBOARD_VERSION = "2.31"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -738,6 +738,153 @@ def _dash_base_url() -> str:
             u = ""
     return u.split("?")[0] if u else "./"
 
+# V2.19：題目分類（單字／文法／閱讀），總覽每一行前加標記、名字下加 30 天小計
+_OV_CATS = ["單字", "文法", "閱讀"]
+_OV_CAT_ICON = {"單字": "🔤", "文法": "📝", "閱讀": "📖", "朗讀": "🎤", "聽力": "🎧", "其他": "❔"}
+
+def _qcat(qid) -> str:
+    s = str(qid).strip()
+    pre = s.split("_")[0] if s else ""
+    if pre == "V":
+        return "單字"
+    if pre == "RM":
+        return "閱讀"
+    if pre == "R":
+        return "朗讀"
+    if pre in ("LS", "LP"):
+        return "聽力"
+    try:
+        t = (_parse_qid(s) or {}).get("題型") or ""
+    except Exception:
+        t = ""
+    if t in ("閱讀重組", "閱讀單句"):
+        return "閱讀"
+    if t in ("拼單字", "單字重組", "歷屆大學"):
+        return "單字"
+    if t in ("單選", "文意文法", "重組", "對話重組"):
+        return "文法"
+    return "其他"
+
+def _cat_tag(g: pd.DataFrame) -> str:
+    if "_cat" not in g.columns:
+        return ""
+    have = set(g["_cat"].tolist())
+    cs = [c for c in _OV_CAT_ICON if c in have]
+    return ("【" + "＋".join(_OV_CAT_ICON[c] + c for c in cs) + "】") if cs else ""
+
+# V2.31：學生報告「歷次作答」上方的 8 天總覽（今天＋前 7 天；格式同學習總覽，名字下是 7／14／30 天小計）
+_WEEK_DAYS = 8
+
+def _render_student_week(stu_name: str):
+    import html as _html
+    _today_d = get_now().date()
+    _dates30 = [_today_d - timedelta(days=i) for i in range(30)]
+    _dates8 = _dates30[:_WEEK_DAYS]
+    _d_from = _dates30[-1].strftime("%Y-%m-%d")
+    _d_to = _today_d.strftime("%Y-%m-%d")
+    try:
+        df = load_logs_for_student(stu_name, date_from=_d_from)
+    except Exception:
+        df = pd.DataFrame()
+    cells, cat = {}, {}
+    if df is not None and not df.empty and "時間" in df.columns and "題目ID" in df.columns:
+        df = df[df["時間"].astype(str).str[:10] <= _d_to]
+        if "結果" in df.columns:
+            df = df[~df["結果"].astype(str).str.contains("📖", na=False)]
+        if not df.empty:
+            df = df.copy()
+            df["_cat"] = df["題目ID"].apply(_qcat)
+            df_a = load_assignments()
+            _aj = df_a.to_json(orient="records") if not df_a.empty else "[]"
+            _qt = _build_qid_task_map_all(_aj)
+            df["_task"] = df["題目ID"].apply(
+                lambda x: _qt.get(str(x).strip(), _qt.get(re.sub(r'^[A-Za-z]_', '', str(x).strip()), "")))
+            if "任務名稱" in df.columns:
+                _miss = df["_task"] == ""
+                df.loc[_miss, "_task"] = df.loc[_miss, "任務名稱"].fillna("").astype(str).apply(_strip_task_date)
+            res = df["結果"].astype(str) if "結果" in df.columns else pd.Series("", index=df.index)
+            _dser = df["時間"].astype(str).str[:10]
+            for (_dd, _cc), _gg in df.groupby([_dser, df["_cat"]]):
+                if _cc in _OV_CATS:
+                    _r2 = res.loc[_gg.index]
+                    cat.setdefault(_dd, {})[_cc] = (int((_r2 == "✅").sum()), int((_r2 == "❌").sum()), int((_r2 == "練習").sum()))
+            for s in reversed(_build_sessions(df)):
+                cells.setdefault(s["start"].strftime("%Y-%m-%d"), []).append(_cat_tag(s["df"]) + _session_summary(s))
+
+    try:
+        _dark = str(st.context.theme.type) == "dark"
+    except Exception:
+        _dark = False
+    _bg = "#0e1117" if _dark else "#ffffff"
+    _hbg = "#262730" if _dark else "#f0f2f6"
+    _nm_fg = "#ffffff" if _dark else "#000000"
+    sy = _student_year(stu_name)
+    color, _ = _year_color(sy)
+    _gp = str(st.session_state.get("dash_group", "") or "")
+    _PERS = (7, 14, 30)
+    _per_ds = {k: {d.strftime("%Y-%m-%d") for d in _dates30[:k]} for k in _PERS}
+    _nd = {k: sum(1 for d in _dates30[:k] if cells.get(d.strftime("%Y-%m-%d"))) for k in _PERS}
+    _mini = ["<table class='ovmini'><tr><th></th>" + "".join(f"<th>{k}天</th>" for k in _PERS) + "</tr>",
+             "<tr><td>📆天數</td>" + "".join(f"<td>{_nd[k]}</td>" for k in _PERS) + "</tr>"]
+    for c in _OV_CATS:
+        _row = f"<tr><td>{_OV_CAT_ICON[c]}{c}</td>"
+        for k in _PERS:
+            ok = err = pr = 0
+            for _dd, _dv in cat.items():
+                if _dd in _per_ds[k] and c in _dv:
+                    ok += _dv[c][0]; err += _dv[c][1]; pr += _dv[c][2]
+            tst = ok + err
+            if tst:
+                rate = ok / tst * 100
+                col = "#30a46c" if rate >= 80 else ("#d4a700" if rate >= 60 else "#e5484d")
+                _cell = f"<span style='color:{col};font-weight:600'>{tst}題 {rate:.0f}%</span>" + (f"<span class='ovpr'>＋練{pr}</span>" if pr else "")
+            elif pr:
+                _cell = f"<span class='ovpr'>練{pr}</span>"
+            else:
+                _cell = "<span class='ovpr'>—</span>"
+            _row += f"<td>{_cell}</td>"
+        _mini.append(_row + "</tr>")
+    _st_html = "".join(_mini) + "</table>"
+
+    _css = f"""<style>
+.ovwrap {{ overflow:auto; border:1px solid rgba(128,128,128,.35); border-radius:8px; margin-bottom:10px; }}
+.ovtbl {{ border-collapse:separate; border-spacing:0; font-size:12.5px; }}
+.ovtbl th, .ovtbl td {{ border-right:1px solid rgba(128,128,128,.25); border-bottom:1px solid rgba(128,128,128,.25);
+  padding:4px 6px; vertical-align:top; text-align:left; }}
+.ovtbl thead th {{ background:{_hbg}; white-space:nowrap; min-width:64px; }}
+.ovtbl th.ovtoday {{ background:#ff4b4b; color:#fff; }}
+.ovtbl td.ovname, .ovtbl th.ovname {{ position:sticky; left:0; z-index:1; background:{_bg}; white-space:nowrap; min-width:110px; }}
+.ovtbl thead th.ovname {{ z-index:3; background:{_hbg}; }}
+.ovtbl td.ovhas {{ background:rgba(48,164,108,.10); min-width:250px; max-width:330px; }}
+.ovtbl td.ovnone {{ background:transparent; }}
+.ovl {{ padding:2px 0; border-bottom:1px dashed rgba(128,128,128,.3); line-height:1.35; }}
+.ovl:last-child {{ border-bottom:none; }}
+.ovbadge {{ padding:2px 9px; border-radius:6px; font-weight:700; font-size:14px; }}
+.ovsub {{ font-size:11px; opacity:.7; }}
+.ovtbl table.ovmini {{ border-collapse:collapse; margin-top:3px; }}
+.ovtbl .ovmini td, .ovtbl .ovmini th {{ position:static; border:none; background:transparent; padding:1px 5px 1px 0;
+  min-width:0; font-size:11px; white-space:nowrap; text-align:left; font-weight:normal; }}
+.ovtbl .ovmini th {{ opacity:.65; }}
+.ovpr {{ color:#6b7280; font-weight:normal; }}
+</style>"""
+    _h = ["<div class='ovwrap'><table class='ovtbl'><thead><tr><th class='ovname'>學生</th>"]
+    for i, d in enumerate(_dates8):
+        lbl = f"{d.strftime('%m-%d')}（{_WEEKDAY_CN[d.weekday()]}）"
+        _h.append(f"<th class='ovtoday'>今天 {lbl}</th>" if i == 0 else f"<th>{lbl}</th>")
+    _h.append("</tr></thead><tbody><tr>")
+    _h.append(f"<td class='ovname'><span class='ovbadge' style='background:{color}33;border:2px solid {color};color:{_nm_fg}'>"
+              f"{_html.escape(stu_name)}</span><div class='ovsub'>{sy}學年 {_html.escape(_gp)}</div>{_st_html}</td>")
+    for d in _dates8:
+        lines = cells.get(d.strftime("%Y-%m-%d"), [])
+        if lines:
+            _h.append("<td class='ovhas'>" + "".join(f"<div class='ovl'>{_html.escape(x)}</div>" for x in lines) + "</td>")
+        else:
+            _h.append("<td class='ovnone'></td>")
+    _h.append("</tr></tbody></table></div>")
+    st.markdown(f"#### 🗓️ 最近 {_WEEK_DAYS} 天總覽（{_dates8[-1].strftime('%m-%d')} ～ {_dates8[0].strftime('%m-%d')}）")
+    st.caption("每一格是當天每一次練習／測驗的報告標題　｜　名字下面是最近 7／14／30 天的作答天數、測驗題數和正確率（＋練＝練習題數）：綠≥80%、黃60–79%、紅<60%")
+    st.markdown(_css + "".join(_h), unsafe_allow_html=True)
+
 # 老師點的學生連結：驗證簽章後直接以該生身分顯示學習報告
 try:
     _qp = st.query_params
@@ -878,6 +1025,7 @@ if _role == "student":
             if not df_mine.empty and "結果" in df_mine.columns:
                 df_mine = df_mine[~df_mine["結果"].astype(str).str.contains("📖", na=False)]
 
+            _render_student_week(_name)  # V2.31：歷次作答上方的 8 天總覽
             st.caption(f"📅 {_stu_from_str} ～ {_stu_to_str}　｜　最後更新：{get_now().strftime('%H:%M:%S')}")
             if df_mine.empty:
                 st.info("此時間範圍內無答題資料")
@@ -950,39 +1098,7 @@ if _role == "student":
 _OV_DAYS   = 30
 _OV_FIELDS = "created_at,name,question_id,result,task_name,elapsed_sec"
 
-# V2.19：題目分類（單字／文法／閱讀），總覽每一行前加標記、名字下加 30 天小計
-_OV_CATS = ["單字", "文法", "閱讀"]
-_OV_CAT_ICON = {"單字": "🔤", "文法": "📝", "閱讀": "📖", "朗讀": "🎤", "聽力": "🎧", "其他": "❔"}
-
-def _qcat(qid) -> str:
-    s = str(qid).strip()
-    pre = s.split("_")[0] if s else ""
-    if pre == "V":
-        return "單字"
-    if pre == "RM":
-        return "閱讀"
-    if pre == "R":
-        return "朗讀"
-    if pre in ("LS", "LP"):
-        return "聽力"
-    try:
-        t = (_parse_qid(s) or {}).get("題型") or ""
-    except Exception:
-        t = ""
-    if t in ("閱讀重組", "閱讀單句"):
-        return "閱讀"
-    if t in ("拼單字", "單字重組", "歷屆大學"):
-        return "單字"
-    if t in ("單選", "文意文法", "重組", "對話重組"):
-        return "文法"
-    return "其他"
-
-def _cat_tag(g: pd.DataFrame) -> str:
-    if "_cat" not in g.columns:
-        return ""
-    have = set(g["_cat"].tolist())
-    cs = [c for c in _OV_CAT_ICON if c in have]
-    return ("【" + "＋".join(_OV_CAT_ICON[c] + c for c in cs) + "】") if cs else ""
+# V2.31：_OV_CATS／_OV_CAT_ICON／_qcat／_cat_tag 已移到前面（學生報告的 8 天總覽也要用）
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _load_logs_range(date_from: str) -> pd.DataFrame:
