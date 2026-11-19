@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.29                                     ║
+# ║  dashboard.py  V2.30                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.29"
+DASHBOARD_VERSION = "2.30"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -1045,6 +1045,25 @@ def _overview_cells(date_from: str, date_to: str) -> dict:
             out.setdefault(nm, {}).setdefault(d, []).append(_cat_tag(s["df"]) + _session_summary(s))
     return {"cells": out, "cat": cat}
 
+# V2.30：今天有上課的學生（00C-英文出席管理表 → 02-今天上課人數計算；狀態＝固定／補課／調課，請假不算）
+_ATT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1qc9B70E-t9cBxkb4NG7uHoKwffY9_KEQM_-eUOGJWyQ/edit"
+_ATT_WS = "02-今天上課人數計算"
+_ATT_OK = ("固定", "補課", "調課")
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _today_class_names() -> list:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    df = conn.read(spreadsheet=_ATT_SHEET_URL, worksheet=_ATT_WS, ttl=300)
+    rows = [list(df.columns)] + df.fillna("").astype(str).values.tolist()
+    out = []
+    for r in rows:
+        r = [str(x).strip() for x in r]
+        for i in range(len(r) - 1):
+            if r[i] in _ATT_OK and r[i + 1]:
+                out.append(r[i + 1])
+                break
+    return list(dict.fromkeys(out))
+
 def _render_overview_tab():
     import html as _html
     _now = get_now()
@@ -1070,8 +1089,9 @@ def _render_overview_tab():
     df_s["_gp"] = df_s["分組"].astype(str).str.strip()
     df_s["_nm"] = df_s["姓名"].astype(str).str.strip()
     df_s = df_s.sort_values(["_sy", "_gp", "_nm"])
+    _all_nm = set(df_s["_nm"].tolist())
 
-    _f1, _f2, _f5, _f3, _f4 = st.columns([1.4, 1.4, 3, 1.2, 1])
+    _f1, _f2, _f5, _f3, _f4 = st.columns([1.4, 1.4, 3, 1.4, 1])
     _yrs = [int(v) for v in df_s["_sy"].dropna().unique().tolist()]
     _sel_y = _f1.multiselect("學年", sorted(_yrs), key="ov_years", placeholder="全部學年")
     _gps = sorted([g for g in df_s["_gp"].unique().tolist() if g])
@@ -1079,8 +1099,10 @@ def _render_overview_tab():
     _gp_names = df_s.groupby("_gp")["_nm"].apply(lambda s: "、".join(dict.fromkeys(s.tolist()))).to_dict()
     _sel_g = _f2.multiselect("組別", _gps, key="ov_groups", placeholder="全部組別",
                              format_func=lambda g: f"{g}（{_gp_names.get(g, '')}）" if _gp_names.get(g) else g)
+    _today_cls = _f3.toggle("只看今天有上課的", value=False, key="ov_only_today")
     _only = _f3.toggle("只看有作答的", value=False, key="ov_only_active")
     if _f4.button("🔄 重新讀取", key="ov_refresh", use_container_width=True):
+        _today_class_names.clear()
         _load_logs_range.clear()
         _overview_cells.clear()
         st.session_state["ov_loaded"] = True
@@ -1088,6 +1110,18 @@ def _render_overview_tab():
         df_s = df_s[df_s["_sy"].isin(_sel_y)]
     if _sel_g:
         df_s = df_s[df_s["_gp"].isin(_sel_g)]
+    if _today_cls:
+        try:
+            _tc = _today_class_names()
+        except Exception as _e_tc:
+            _tc = None
+            st.warning((f"讀不到出席管理表「{_ATT_WS}」：{type(_e_tc).__name__}: {_e_tc}")[:300]
+                       + "　→ 請把 dashboard 的服務帳號（client_email）加入「00C-英文出席管理表」的共用名單（檢視者即可）")
+        if _tc is not None:
+            df_s = df_s[df_s["_nm"].isin(_tc)]
+            _miss = [n for n in _tc if n not in _all_nm]
+            st.caption(f"📌 今天有上課（出席管理表，固定／補課／調課）：{len(_tc)} 人"
+                       + (f"　｜　學生名單找不到：{'、'.join(_miss)}" if _miss else ""))
     # V2.20：可再挑選學生（選項依學年、組別縮小；可打字搜尋名字）
     _nm_opts = list(dict.fromkeys(df_s["_nm"].tolist()))
     if st.session_state.get("ov_names"):
