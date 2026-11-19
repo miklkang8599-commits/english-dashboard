@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.34                                     ║
+# ║  dashboard.py  V2.35                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.34"
+DASHBOARD_VERSION = "2.35"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -1328,7 +1328,7 @@ def _render_overview_tab():
     for i, d in enumerate(_dates):
         lbl = f"{d.strftime('%m-%d')}（{_WEEKDAY_CN[d.weekday()]}）"
         if i == 0:
-            _h.append(f"<th class='ovtoday'>今天 {lbl}</th>")
+            _h.append(f"<th>今天 {lbl}</th>")  # V2.35：今天不用紅底
         else:
             _h.append(f"<th>{lbl}</th>")
     _h.append("</tr></thead><tbody>")
