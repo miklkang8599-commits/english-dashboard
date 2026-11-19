@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.36                                     ║
+# ║  dashboard.py  V2.37                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.36"
+DASHBOARD_VERSION = "2.37"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -502,9 +502,27 @@ def _session_stats(g: pd.DataFrame) -> dict:
         "elapsed": _sum_elapsed(g),
     }
 
+def _session_articles(g) -> int:
+    """V2.37：這次作答讀了幾篇文章（閱讀題依題組算，同一篇只算一次）"""
+    try:
+        if "_art" in g.columns:
+            a = g.loc[g["_art"].astype(str) != "", "_art"]
+        else:
+            q = g["題目ID"].astype(str)
+            q = q[q.apply(_qcat) == "閱讀"]
+            if q.empty:
+                return 0
+            _gm = _rm_group_map()
+            a = q.apply(lambda x: _article_id(x, _gm))
+        return int(a.nunique())
+    except Exception:
+        return 0
+
 def _session_summary(s: dict) -> str:
     stt = _session_stats(s["df"])
     txt = f"🕒 {_fmt_ts(s['start'], with_date=False)}　{s['mode']}｜{s['task']}"
+    _na = _session_articles(s["df"])
+    if _na: txt += f"　{_na}篇"
     if stt["test"]: txt += f"　測驗{stt['test']}題 ✅{stt['ok']} ❌{stt['err']}（{stt['rate']}）"
     if stt["prac"]: txt += f"　練習{stt['prac']}題"
     other = stt["total"] - stt["test"] - stt["prac"]
