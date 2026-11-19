@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.33                                     ║
+# ║  dashboard.py  V2.34                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.33"
+DASHBOARD_VERSION = "2.34"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -881,7 +881,7 @@ def _render_student_week(stu_name: str):
     _h = ["<div class='ovwrap ovwk'><table class='ovtbl'><thead><tr><th class='ovname'>學生</th>"]
     for i, d in enumerate(_dates8):
         lbl = f"{d.strftime('%m-%d')}（{_WEEKDAY_CN[d.weekday()]}）"
-        _h.append(f"<th class='ovtoday'>今天 {lbl}</th>" if i == 0 else f"<th>{lbl}</th>")
+        _h.append(f"<th>今天 {lbl}</th>" if i == 0 else f"<th>{lbl}</th>")  # V2.34：今天不用紅底
     _h.append("</tr></thead><tbody><tr>")
     _h.append(f"<td class='ovname'><span class='ovbadge' style='background:{color}33;border:2px solid {color};color:{_nm_fg}'>"
               f"{_html.escape(stu_name)}</span><div class='ovsub'>{sy}學年 {_html.escape(_gp)}</div>{_st_html}</td>")
@@ -898,7 +898,7 @@ def _render_student_week(stu_name: str):
     for i, d in enumerate(_dates8):
         _lb = f"{d.strftime('%m-%d')}（{_WEEKDAY_CN[d.weekday()]}）"
         _hd = ("今天 " + _lb) if i == 0 else _lb
-        _cls = "ovmday ovmtoday" if i == 0 else "ovmday"
+        _cls = "ovmday"  # V2.34：今天不用紅底
         lines = cells.get(d.strftime("%Y-%m-%d"), [])
         if lines:
             _v.append(f"<div class='{_cls}'><div class='ovmh'>{_hd}</div><div class='ovmb'>"
