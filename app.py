@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.28                                     ║
+# ║  dashboard.py  V2.29                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.28"
+DASHBOARD_VERSION = "2.29"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -342,6 +342,21 @@ def _render_detail(tdf):
         q_lookup  = build_question_lookup(tuple(set(orig_qids)))
         detail["正確答案"] = [q_lookup.get(q, {}).get("答案", "") for q in orig_qids]
         detail["題目ID"]   = [q_lookup.get(q, {}).get("題目", q) for q in orig_qids]
+        # V2.29：英選中＝看英文、選中文 → 題目顯示英文，正確答案顯示中文
+        _cjk = r'[\u4e00-\u9fff]'
+        _ec = (detail["題目ID"].str.contains(_cjk, regex=True, na=False)
+               & (detail["正確答案"] != "")
+               & ~detail["正確答案"].str.contains(_cjk, regex=True, na=False))
+        _hint = pd.Series(False, index=detail.index)
+        if "練習方式" in detail.columns:
+            _hint |= detail["練習方式"].str.contains("英選中", na=False)
+        if "學生答案" in detail.columns:
+            _hint |= detail["學生答案"].str.contains(_cjk, regex=True, na=False)
+        _ec &= _hint
+        if _ec.any():
+            _q_en = detail.loc[_ec, "正確答案"].copy()
+            detail.loc[_ec, "正確答案"] = detail.loc[_ec, "題目ID"]
+            detail.loc[_ec, "題目ID"] = _q_en
     if "答題秒數" in detail.columns:
         detail["答題時間"] = detail["答題秒數"].apply(_fmt_elapsed)
     ordered = [c for c in ["時間","題目ID","結果","學生答案","正確答案","答題時間"] if c in detail.columns]
