@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.40                                     ║
+# ║  dashboard.py  V2.41                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.40"
+DASHBOARD_VERSION = "2.41"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -338,8 +338,8 @@ def _sum_elapsed(tdf):
     except:
         return ""
 
-def _render_detail(tdf):
-    """顯示詳細答題清單，格式同數據監控"""
+def _render_detail(tdf, key=None):
+    """顯示詳細答題清單，格式同數據監控（V2.41：給 key 時可點一題跳出題目內容）"""
     detail = tdf.copy().reset_index(drop=True)
     detail = detail.fillna("").astype(str)
     if "時間" in detail.columns:
@@ -381,7 +381,293 @@ def _render_detail(tdf):
     if "正確答案" in detail.columns: col_cfg_d["正確答案"] = st.column_config.TextColumn("正確答案", width=30)
     if "題目ID"   in detail.columns: col_cfg_d["題目ID"]   = st.column_config.TextColumn("題目",     width=None)
     if "答題時間" in detail.columns: col_cfg_d["答題時間"] = st.column_config.TextColumn("答題時間", width=60)
+    if key and "題目ID" in tdf.columns:
+        # V2.41：點表格最左邊的方框選一題 → 跳出視窗（每開一次就換一個 key，關掉後不會一直重開）
+        _cnt = st.session_state.get(f"_qvn_{key}", 0)
+        st.caption("👆 點表格最左邊的小方框選一題，會跳出英文題目、選項、中文翻譯和解析（閱讀題整篇一起看）")
+        try:
+            ev = st.dataframe(detail[ordered], use_container_width=True, hide_index=True, column_config=col_cfg_d,
+                              on_select="rerun", selection_mode="single-row", key=f"qv_{key}_{_cnt}")
+        except TypeError:
+            st.dataframe(detail[ordered], use_container_width=True, hide_index=True, column_config=col_cfg_d)
+            return
+        try:
+            _sel = list(ev.selection.rows)
+        except Exception:
+            _sel = []
+        if _sel and 0 <= int(_sel[0]) < len(orig_qids):
+            st.session_state[f"_qvn_{key}"] = _cnt + 1
+            _qv_open(orig_qids[int(_sel[0])], _qv_ans_map(tdf))
+        return
     st.dataframe(detail[ordered], use_container_width=True, hide_index=True, column_config=col_cfg_d)
+
+# ── V2.41：作答明細點一題 → 跳出視窗看英文題目、選項、中文翻譯、解析（閱讀題整個題組一起）──
+_QV_CSS = """<style>
+.qv-en, .qv-zh { font-size:1.02rem; line-height:1.6; }
+.qv-en p, .qv-zh p { margin:0 0 .6em; }
+.qv-en .rm-tbl { overflow-x:auto; }
+.qv-en table { border-collapse:collapse; font-size:.85rem; width:100%; max-width:520px; }
+.qv-en th, .qv-en td { border:1px solid rgba(128,128,128,.45); padding:3px 5px; text-align:center; }
+.qv-en .rm-chat { display:flex; flex-direction:column; gap:6px; }
+.qv-en .rm-msg { max-width:82%; padding:5px 11px; border-radius:12px; border:1px solid rgba(128,128,128,.35); line-height:1.4; }
+.qv-en .rm-msg.l { align-self:flex-start; }
+.qv-en .rm-msg.r { align-self:flex-end; background:rgba(13,106,110,.12); }
+.qv-en .rm-who { display:block; font-size:.7rem; opacity:.7; }
+.qv-psg { padding-bottom:8px; margin-bottom:4px; border-bottom:1px dashed rgba(128,128,128,.45); }
+.qv-item { margin-top:8px; padding:6px 9px; border-radius:8px; border:1px solid rgba(128,128,128,.3); }
+.qv-cur { border:2px solid #f59e0b; }
+.qv-opt { padding:1px 0 1px 8px; }
+.qv-ok { color:#30a46c; font-weight:600; }
+.qv-bad { color:#e5484d; font-weight:600; }
+</style>"""
+
+def _qv_key(sheet, vals) -> str:
+    return sheet + "#" + "|".join(_norm(v).replace("ㄧ", "一") for v in vals)
+
+def _qv_num(x):
+    try:
+        return float(str(x).strip())
+    except Exception:
+        return 0.0
+
+def _qv_txt(s) -> str:
+    """純文字 → HTML（跳脫、換行變 <br>）"""
+    import html as _h
+    return _h.escape(str(s or "").strip()).replace("\n", "<br>")
+
+def _qv_rich(s) -> str:
+    """題庫本來就有 HTML（文章表格、<u> 底線）→ 保留標籤，只處理換行"""
+    s = str(s or "").strip()
+    if not re.search(r"<(table|div|p|ul|ol)\b", s, re.I):
+        s = s.replace("\n", "<br>")
+    return s.replace("\r", "").replace("\n", " ")
+
+def _qv_html(s: str) -> str:
+    return s.replace("$", "&#36;")
+
+@st.cache_resource(ttl=3600, show_spinner=False)
+def _qv_index(sheet_name: str, key_cols: tuple) -> dict:
+    """題庫索引（全 App 共用、1 小時更新）：key → 列號；題組 → 列號清單"""
+    out = {"df": None, "rows": {}, "groups": {}}
+    try:
+        df = load_question_sheet(sheet_name)
+    except Exception:
+        return out
+    if df is None or df.empty or any(c not in df.columns for c in key_cols):
+        return out
+    df = df.reset_index(drop=True)
+    out["df"] = df
+    for i, vals in enumerate(df[list(key_cols)].itertuples(index=False)):
+        out["rows"].setdefault(_qv_key(sheet_name, vals), i)
+    if "題組" in df.columns:
+        for i, g in enumerate(df["題組"].tolist()):
+            g = str(g).strip()
+            if g:
+                out["groups"].setdefault(g, []).append(i)
+    return out
+
+def _qv_cfg(qid):
+    p = _parse_qid(qid)
+    if not p:
+        return None, None
+    cfg = _QTYPE_SHEETS.get(p.get("題型"))
+    return p, cfg
+
+def _qv_ans_map(tdf) -> dict:
+    """這次作答每一題的（學生答案, 結果），用題庫 key 對應"""
+    out = {}
+    try:
+        qs = tdf["題目ID"].astype(str).tolist()
+        ans = tdf["學生答案"].fillna("").astype(str).tolist() if "學生答案" in tdf.columns else [""] * len(qs)
+        res = tdf["結果"].fillna("").astype(str).tolist() if "結果" in tdf.columns else [""] * len(qs)
+        for q, a, r in zip(qs, ans, res):
+            p, cfg = _qv_cfg(q)
+            if p and cfg:
+                out[_qv_key(cfg["sheet"], [p.get(c, "") for c in cfg["key"]])] = (a, r)
+    except Exception:
+        pass
+    return out
+
+def _qv_show(qid, ans_map: dict):
+    st.markdown(_QV_CSS, unsafe_allow_html=True)
+    p, cfg = _qv_cfg(qid)
+    idx = _qv_index(cfg["sheet"], tuple(cfg["key"])) if cfg else None
+    df = idx["df"] if idx else None
+    i = idx["rows"].get(_qv_key(cfg["sheet"], [p.get(c, "") for c in cfg["key"]])) if df is not None else None
+    if i is None:
+        st.warning("題庫裡找不到這一題（可能題目已修改或刪除）")
+        st.caption(str(qid))
+        return
+    sheet = cfg["sheet"]
+    r = df.iloc[i]
+
+    def g(row, c):
+        return str(row.get(c, "") or "").strip()
+
+    src = "・".join(v for v in [g(r, "考卷年度"), g(r, "學校"), (g(r, "卷別") + "卷") if g(r, "卷別") else "", g(r, "文法")] if v)
+    en, zh, ex, imgs = [], [], [], []
+    n_head = 0
+    if sheet == "閱讀單句":
+        grp = g(r, "題組")
+        rows_i = sorted(idx["groups"].get(grp, [i]) if grp else [i], key=lambda k: _qv_num(df.iloc[k]["句編號"]))
+        st.caption(("📖 閱讀題組" if len(rows_i) > 1 else "📖 閱讀") + (f"（{src}）" if src else "") + f"　這篇共 {len(rows_i)} 題")
+        passage = next((g(df.iloc[k], "答案") for k in rows_i if g(df.iloc[k], "答案")), "")
+        full_zh = next((g(df.iloc[k], "全文翻譯") for k in rows_i if g(df.iloc[k], "全文翻譯")), "")
+        if passage:
+            en.append(f"<div class='qv-psg'>{_qv_rich(passage)}</div>")
+        n_head = len(en)
+        for k in rows_i:
+            v = g(df.iloc[k], "圖片")
+            if v and v not in imgs:
+                imgs.append(v)
+        if full_zh:
+            zh.append(f"<div class='qv-psg'>{_qv_txt(full_zh)}</div>")
+        for n, k in enumerate(rows_i, 1):
+            rr = df.iloc[k]
+            cor = g(rr, "正確選項列出").upper()
+            sa, res = ans_map.get(_qv_key(sheet, [rr.get(c, "") for c in cfg["key"]]), ("", ""))
+            sa = str(sa).strip().upper()
+            cur = k == i
+            ccls = " qv-cur" if cur else ""
+            opts = []
+            for o in "ABCD":
+                t = g(rr, f"選項{o}")
+                if not t:
+                    continue
+                if o == cor:
+                    opts.append(f"<div class='qv-opt qv-ok'>✅ ({o}) {_qv_rich(t)}</div>")
+                elif sa and o == sa:
+                    opts.append(f"<div class='qv-opt qv-bad'>❌ ({o}) {_qv_rich(t)}</div>")
+                else:
+                    opts.append(f"<div class='qv-opt'>({o}) {_qv_rich(t)}</div>")
+            en.append(f"<div class='qv-item{ccls}'><b>{'👉 ' if cur else ''}{n}. {_qv_rich(g(rr, '題目'))}</b>{''.join(opts)}</div>")
+            if g(rr, "翻譯"):
+                zh.append(f"<div class='qv-item{ccls}'><b>{n}.</b> {_qv_txt(g(rr, '翻譯'))}</div>")
+            ex.append((n, cor, sa, res, g(rr, "解析"), cur))
+        box_h = 380
+    else:
+        st.caption(f"📝 {p.get('題型') or sheet}" + (f"（{src}）" if src else ""))
+        content = g(r, cfg["content"]) if cfg.get("content") else ""
+        answer = g(r, cfg["answer"]) if cfg.get("answer") else ""
+        sa, res = ans_map.get(_qv_key(sheet, [r.get(c, "") for c in cfg["key"]]), ("", ""))
+        if content:
+            en.append(f"<div class='qv-item qv-cur'>{_qv_txt(content)}</div>")
+        if sheet != "單選" and answer:
+            en.append(f"<div class='qv-opt qv-ok'>✅ 正確答案：{_qv_txt(answer)}</div>")
+        if g(r, "中文翻譯"):
+            zh.append(f"<div class='qv-item'>{_qv_txt(g(r, '中文翻譯'))}</div>")
+        ex.append((0, answer if sheet == "單選" else "", str(sa).strip(), res, g(r, "解析"), True))
+        box_h = 220
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**🇬🇧 英文**")
+        with st.container(height=box_h):
+            if n_head:
+                st.markdown(_qv_html("<div class='qv-en'>" + "".join(en[:n_head]) + "</div>"), unsafe_allow_html=True)
+            for v in imgs:  # 文章圖片（Drive「0000-閱讀圖片」）
+                _b = _qv_image(v)
+                if _b:
+                    try:
+                        st.image(_b, use_container_width=True)
+                    except TypeError:
+                        st.image(_b)
+                else:
+                    st.caption(f"⚠️ 圖片讀取失敗：{v}")
+            st.markdown(_qv_html("<div class='qv-en'>" + "".join(en[n_head:]) + "</div>"), unsafe_allow_html=True)
+    with c2:
+        st.markdown("**🈶 中文翻譯**")
+        with st.container(height=box_h):
+            st.markdown(_qv_html("<div class='qv-zh'>" + ("".join(zh) or "（這題沒有中文翻譯）") + "</div>"), unsafe_allow_html=True)
+    st.markdown("**📝 解析**")
+    for n, cor, sa, res, an, cur in ex:
+        head = ("👉 " if cur and n else "") + (f"第 {n} 題　" if n else "")
+        if cor:
+            head += f"正確答案 {_qv_txt(cor)}"
+        if sa:
+            ok = (res == "✅") if res in ("✅", "❌") else (sa.upper() == cor.upper())
+            head += f"　學生答 {_qv_txt(sa)} {'✅' if ok else '❌'}"
+        elif n:
+            head += "　（這次沒有作答這題）"
+        st.markdown(_qv_html(f"<div class='qv-item{' qv-cur' if cur and n else ''}'><b>{head}</b><br>{_qv_txt(an) or '（沒有解析）'}</div>"),
+                    unsafe_allow_html=True)
+
+@st.cache_resource(show_spinner=False)
+def _qv_drive():
+    """用 gsheets 的服務帳號讀 Drive（唯讀），和練習系統讀閱讀圖片同一種方式"""
+    from google.oauth2.service_account import Credentials
+    from google.auth.transport.requests import AuthorizedSession
+    s = st.secrets["connections"]["gsheets"]
+    info = {k: s.get(k, "") for k in ("project_id", "private_key_id", "private_key", "client_email", "client_id", "client_x509_cert_url")}
+    info.update({"type": "service_account", "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                 "token_uri": "https://oauth2.googleapis.com/token",
+                 "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs"})
+    creds = Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/drive.readonly"])
+    return AuthorizedSession(creds)
+
+_QV_IMG_FOLDER = "1m75ySBx_Q1li6Ke3MKg-qdL1_0a7J56g"  # Drive「0000-閱讀圖片」
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _qv_img_index() -> dict:
+    """{檔名小寫: file_id}"""
+    out = {}
+    try:
+        ses, tok = _qv_drive(), None
+        while True:
+            prm = {"q": f"'{_QV_IMG_FOLDER}' in parents and trashed=false",
+                   "fields": "nextPageToken,files(id,name)", "pageSize": 1000}
+            if tok:
+                prm["pageToken"] = tok
+            j = ses.get("https://www.googleapis.com/drive/v3/files", params=prm, timeout=15).json()
+            for f in j.get("files", []):
+                out[str(f["name"]).strip().lower()] = f["id"]
+            tok = j.get("nextPageToken")
+            if not tok:
+                break
+    except Exception:
+        pass
+    return out
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _qv_img_bytes(fid: str):
+    try:
+        r = _qv_drive().get(f"https://www.googleapis.com/drive/v3/files/{fid}", params={"alt": "media"}, timeout=20)
+        if r.status_code == 200 and r.content:
+            return r.content
+    except Exception:
+        pass
+    try:
+        import requests as _rq
+        r = _rq.get(f"https://drive.google.com/uc?export=download&id={fid}", timeout=10)
+        if r.status_code == 200 and r.headers.get("Content-Type", "").startswith("image/"):
+            return r.content
+    except Exception:
+        pass
+    return None
+
+def _qv_image(v):
+    """「圖片」欄：檔名、Drive 連結/ID 或 http 網址 → 圖片 bytes 或網址"""
+    v = str(v or "").strip()
+    if not v:
+        return None
+    if re.search(r"\.(png|jpe?g|gif|webp)$", v, re.I) and not v.startswith("http"):
+        fid = _qv_img_index().get(v.lower())
+        return _qv_img_bytes(fid) if fid else None
+    m = re.search(r"(?:/d/|[?&]id=)([A-Za-z0-9_-]{20,})", v)
+    fid = m.group(1) if m else (v if re.fullmatch(r"[A-Za-z0-9_-]{20,}", v) else "")
+    if fid:
+        return _qv_img_bytes(fid)
+    return v if v.startswith("http") else None
+
+def _qv_open(qid, ans_map: dict):
+    try:
+        @st.dialog("📖 題目內容", width="large")
+        def _qv_dlg():
+            _qv_show(qid, ans_map)
+        _qv_dlg()
+    except Exception:
+        with st.container(border=True):
+            _qv_show(qid, ans_map)
 
 _WEEKDAY_CN = ["一","二","三","四","五","六","日"]
 
@@ -1164,7 +1450,7 @@ if _role == "student":
                     st.markdown(_lbl)
                 _summary = _session_summary(s)
                 with st.expander(_summary, expanded=False):
-                    _render_detail(s["df"])
+                    _render_detail(s["df"], key=f"{i}_{s['start'].strftime('%Y%m%d%H%M%S')}")  # V2.41
 
         _stu_report_fragment()
 
