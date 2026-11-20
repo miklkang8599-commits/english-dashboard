@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.41                                     ║
+# ║  dashboard.py  V2.42                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.41"
+DASHBOARD_VERSION = "2.42"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -367,6 +367,8 @@ def _render_detail(tdf, key=None):
         if "學生答案" in detail.columns:
             _hint |= detail["學生答案"].str.contains(_cjk, regex=True, na=False)
         _ec &= _hint
+        # V2.42：只有單字題才會「英選中」對調（單選題目有中文、學生答案「原始(b)→顯示(b)」也有中文，不能對調）
+        _ec &= pd.Series([_qcat(q) == "單字" for q in orig_qids], index=detail.index)
         if _ec.any():
             _q_en = detail.loc[_ec, "正確答案"].copy()
             detail.loc[_ec, "正確答案"] = detail.loc[_ec, "題目ID"]
