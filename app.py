@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.43                                     ║
+# ║  dashboard.py  V2.44                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.43"
+DASHBOARD_VERSION = "2.44"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -1142,15 +1142,9 @@ def _load_dialog_logs(stu_name: str, date_from: str) -> pd.DataFrame:
         d0 = (datetime.strptime(date_from, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
         res = (get_supabase().table("dialog_logs").select("*").eq("name", stu_name)
                .gte("created_at", d0).order("created_at", desc=False).limit(3000).execute())
-        df = pd.DataFrame(res.data or [])
+        return _dlg_prep(res.data)
     except Exception:
         return pd.DataFrame()
-    if df.empty:
-        return df
-    df["_t"] = pd.to_datetime(df["created_at"], utc=True, errors="coerce").dt.tz_convert("Asia/Taipei")
-    df = df[df["_t"].notna()].copy()
-    df["_day"] = df["_t"].dt.strftime("%Y-%m-%d")
-    return df
 
 
 @st.cache_data(ttl=180, show_spinner=False)
@@ -1214,63 +1208,143 @@ def _dlg_fill(tpl: str, words: str, zh_map: dict = None) -> str:
     return re.sub(r"\{\s*(\??\w+)\s*\}", _rep, tpl).strip()
 
 
-def _render_dialog_section(stu_name: str, d_from: str, d_to: str):
-    """學生報告：期間內的對話練習（每個任務每天一列，點開看每一句和錄音）"""
-    df = _load_dialog_logs(stu_name, d_from)
-    if df.empty:
-        return
-    df = df[(df["_day"] >= d_from) & (df["_day"] <= d_to)]
-    if df.empty:
-        return
+def _dlg_prep(rows) -> pd.DataFrame:
+    """dialog_logs 原始資料 → DataFrame（_t＝台灣時間、不帶時區，和作答紀錄的時間可以比較；_day＝日期）"""
+    df = pd.DataFrame(rows or [])
+    if df.empty or "created_at" not in df.columns:
+        return pd.DataFrame()
+    df["_t"] = pd.to_datetime(df["created_at"], utc=True, errors="coerce").dt.tz_convert("Asia/Taipei").dt.tz_localize(None)
+    df = df[df["_t"].notna()].copy()
+    df["_day"] = df["_t"].dt.strftime("%Y-%m-%d")
+    df["name"] = df["name"].fillna("").astype(str).str.strip()
+    return df
+
+
+def _dlg_groups(df: pd.DataFrame) -> list:
+    """對話紀錄 → 每天 × 每個任務一組（新的在前），附統計"""
+    if df is None or df.empty:
+        return []
     titles = _load_dialog_titles()
     ref = _dialog_turns()
-    st.markdown(f"#### 🗣️ 對話練習　{stu_name}")
     df = df.copy()
     df["_aid"] = df["assign_id"].apply(lambda x: "" if pd.isna(x) else str(int(x)))
-    groups = sorted(df.groupby(["_day", "_aid", "dialog_id"]), key=lambda g: g[1]["_t"].max(), reverse=True)
-    for gi, ((day, aid, did), g) in enumerate(groups):
+    out = []
+    for (day, aid, did), g in df.groupby(["_day", "_aid", "dialog_id"]):
         name = titles.get(int(aid), ("", ""))[0] if aid else "（自己試練）"
         name = re.sub(r"^\s*🗣️?\s*", "", name or ref["titles"].get(did, did))
         sc = g["self_check"].astype(str)
-        n_ok, n_again = int((sc == "✅").sum()), int((sc == "🔁").sum())
-        n_audio = int((g["audio_path"].fillna("").astype(str) != "").sum())
-        rounds = g["round_no"].nunique()
-        t0, t1 = g["_t"].min().strftime("%H:%M"), g["_t"].max().strftime("%H:%M")
-        lbl = (f"🗣️ {day}（{_WEEKDAY_CN[g['_t'].min().weekday()]}）{t0}～{t1}　{name}　"
-               f"｜ {rounds} 輪 {len(g)} 句　✅ {n_ok}　🔁 {n_again}　🎙️ {n_audio}")
-        zmap = {e: z for (d, e), z in ref["zh"].items() if d == did}
-        with st.expander(lbl, expanded=False):
-            rows = []
-            for _, r in g.iterrows():
-                en, zh = ref["turns"].get((did, int(r["turn_no"])), ("", ""))
-                rows.append({"時間": r["_t"].strftime("%H:%M:%S"), "階段": str(r.get("stage") or ""),
-                             "輪": int(r["round_no"]), "句": int(r["turn_no"]),
-                             "句子": _dlg_fill(en, r.get("words")) or str(r.get("words") or ""),
-                             "中文": _dlg_fill(zh, r.get("words"), zmap),
-                             "自評": str(r["self_check"]) + " " + _DLG_CHECK.get(str(r["self_check"]), ""),
-                             "_audio": str(r.get("audio_path") or "")})
-            tdf = pd.DataFrame(rows)
-            st.dataframe(tdf.drop(columns=["_audio"]), use_container_width=True, hide_index=True,
-                         column_config={"句子": st.column_config.TextColumn("句子", width="large")})
-            aud = tdf[tdf["_audio"] != ""]
-            if not aud.empty:
-                k = f"dlg_aud_{day}_{aid}_{did}_{gi}"
-                if st.button(f"🎧 聽錄音（{len(aud)} 段）", key=k):
-                    st.session_state[k + "_on"] = True
-                if st.session_state.get(k + "_on"):
-                    store = get_supabase().storage.from_("dialog_audio")
-                    for _, r in aud.iterrows():
-                        try:
-                            u = store.create_signed_url(r["_audio"], 3600)
-                            u = (u.get("signedURL") or u.get("signedUrl") or u.get("signed_url")) if isinstance(u, dict) \
-                                else getattr(u, "signed_url", "")
-                        except Exception:
-                            u = ""
-                        st.caption(f"第 {r['輪']} 輪 第 {r['句']} 句　{r['自評']}　{r['句子']}")
-                        if u:
-                            st.audio(u)
-                        else:
-                            st.caption("（錄音讀取失敗）")
+        out.append({"day": day, "aid": aid, "did": did, "g": g, "name": name,
+                    "start": g["_t"].min(), "end": g["_t"].max(), "rounds": int(g["round_no"].nunique()),
+                    "n": len(g), "ok": int((sc == "✅").sum()), "again": int((sc == "🔁").sum()),
+                    "audio": int((g["audio_path"].fillna("").astype(str) != "").sum())})
+    out.sort(key=lambda x: x["end"], reverse=True)
+    return out
+
+
+def _dlg_summary(x: dict, tag: bool = False) -> str:
+    """一組對話練習的一行標題（格式同「歷次作答」）"""
+    return (("【🗣️對話】" if tag else "") + f"🕒 {x['start'].strftime('%H:%M:%S')}　🗣️ 對話練習｜{x['name']}"
+            f"　{x['rounds']}輪 {x['n']}句 ✅{x['ok']} 🔁{x['again']}" + (f" 🎙️{x['audio']}" if x["audio"] else ""))
+
+
+def _dlg_daycat(groups: list) -> dict:
+    """{日期: (說對了, 再練, 句數)}，給總覽小表格用"""
+    out = {}
+    for x in groups:
+        a = out.get(x["day"], (0, 0, 0))
+        out[x["day"]] = (a[0] + x["ok"], a[1] + x["again"], a[2] + x["n"])
+    return out
+
+
+def _dlg_mini_cell(daycat: dict, days: set):
+    """總覽小表格「🗣️對話」一格：句數＋說對了比例（✅／(✅+🔁)）→ (html, csv 文字)"""
+    ok = again = n = 0
+    for d, v in daycat.items():
+        if d in days:
+            ok += v[0]; again += v[1]; n += v[2]
+    if ok + again:
+        rate = ok / (ok + again) * 100
+        col = "#30a46c" if rate >= 80 else ("#d4a700" if rate >= 60 else "#e5484d")
+        return f"<span style='color:{col};font-weight:600'>{n}句 {rate:.0f}%</span>", f"{n}句 說對{rate:.0f}%"
+    if n:
+        return f"<span class='ovpr'>{n}句</span>", f"{n}句"
+    return "<span class='ovpr'>—</span>", ""
+
+
+def _dlg_for_student(stu_name: str, d_from: str, d_to: str) -> list:
+    df = _load_dialog_logs(stu_name, d_from)
+    if df.empty:
+        return []
+    return _dlg_groups(df[(df["_day"] >= d_from) & (df["_day"] <= d_to)])
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _dialog_overview(date_from: str, date_to: str) -> dict:
+    """全班對話練習 → {"lines": {姓名: {日期: [標題]}}, "cat": {姓名: {日期: (對, 再練, 句數)}}}"""
+    rows = []
+    try:
+        sb = get_supabase()
+        page = 0
+        while True:
+            res = (sb.table("dialog_logs").select("*").gte("created_at", date_from)
+                   .order("created_at", desc=False).range(page * 1000, (page + 1) * 1000 - 1).execute())
+            if not res.data:
+                break
+            rows.extend(res.data)
+            if len(res.data) < 1000:
+                break
+            page += 1
+    except Exception:
+        return {}
+    df = _dlg_prep(rows)
+    if df.empty:
+        return {}
+    df = df[(df["_day"] >= date_from) & (df["_day"] <= date_to)]
+    lines, cat = {}, {}
+    for nm, g in df.groupby("name"):
+        grp = _dlg_groups(g)
+        for x in grp:
+            lines.setdefault(nm, {}).setdefault(x["day"], []).append(_dlg_summary(x, True))
+        cat[nm] = _dlg_daycat(grp)
+    return {"lines": lines, "cat": cat}
+
+
+def _render_dlg_detail(x: dict, key: str):
+    """點開一組對話練習：每一句（英文／中文）、自評、錄音"""
+    ref = _dialog_turns()
+    did = x["did"]
+    zmap = {e: z for (d, e), z in ref["zh"].items() if d == did}
+    rows = []
+    for _, r in x["g"].iterrows():
+        en, zh = ref["turns"].get((did, int(r["turn_no"])), ("", ""))
+        rows.append({"時間": r["_t"].strftime("%H:%M:%S"), "階段": str(r.get("stage") or ""),
+                     "輪": int(r["round_no"]), "句": int(r["turn_no"]),
+                     "句子": _dlg_fill(en, r.get("words")) or str(r.get("words") or ""),
+                     "中文": _dlg_fill(zh, r.get("words"), zmap),
+                     "自評": str(r["self_check"]) + " " + _DLG_CHECK.get(str(r["self_check"]), ""),
+                     "_audio": str(r.get("audio_path") or "")})
+    tdf = pd.DataFrame(rows)
+    st.dataframe(tdf.drop(columns=["_audio"]), use_container_width=True, hide_index=True,
+                 column_config={"句子": st.column_config.TextColumn("句子", width="large")})
+    aud = tdf[tdf["_audio"] != ""]
+    if aud.empty:
+        return
+    if st.button(f"🎧 聽錄音（{len(aud)} 段）", key=key):
+        st.session_state[key + "_on"] = True
+    if st.session_state.get(key + "_on"):
+        store = get_supabase().storage.from_("dialog_audio")
+        for _, r in aud.iterrows():
+            try:
+                u = store.create_signed_url(r["_audio"], 3600)
+                u = (u.get("signedURL") or u.get("signedUrl") or u.get("signed_url")) if isinstance(u, dict) \
+                    else getattr(u, "signed_url", "")
+            except Exception:
+                u = ""
+            st.caption(f"第 {r['輪']} 輪 第 {r['句']} 句　{r['自評']}　{r['句子']}")
+            if u:
+                st.audio(u)
+            else:
+                st.caption("（錄音讀取失敗）")
 
 
 # V2.31：學生報告「歷次作答」上方的 8 天總覽（今天＋前 7 天；格式同學習總覽，名字下是 7／14／30 天小計）
@@ -1312,6 +1386,11 @@ def _render_student_week(stu_name: str):
                     cat.setdefault(_dd, {})[_cc] = (int((_r2 == "✅").sum()), int((_r2 == "❌").sum()), int((_r2 == "練習").sum()), set(_gg["_art"].tolist()) - {""})
             for s in _build_sessions(df):  # V2.39：同一天內新的在上（降冪）
                 cells.setdefault(s["start"].strftime("%Y-%m-%d"), []).append(_cat_tag(s["df"]) + _session_summary(s))
+    # V2.44：對話練習放在當天其他作答的後面；小表格多一列「🗣️對話」
+    _dgrp = _dlg_for_student(stu_name, _d_from, _d_to)
+    for x in _dgrp:
+        cells.setdefault(x["day"], []).append(_dlg_summary(x, True))
+    _dcat = _dlg_daycat(_dgrp)
 
     try:
         _dark = str(st.context.theme.type) == "dark"
@@ -1346,6 +1425,8 @@ def _render_student_week(stu_name: str):
                 _cell = "<span class='ovpr'>—</span>"
             _row += f"<td>{_cell}</td>"
         _mini.append(_row + "</tr>")
+    if _dcat:  # V2.44
+        _mini.append("<tr><td>🗣️對話</td>" + "".join(f"<td>{_dlg_mini_cell(_dcat, _per_ds[k])[0]}</td>" for k in _PERS) + "</tr>")
     _st_html = "".join(_mini) + "</table>"
 
     _css = f"""<style>
@@ -1409,7 +1490,7 @@ def _render_student_week(stu_name: str):
             _v.append(f"<div class='{_cls} ovmempty'><div class='ovmh'>{_hd}　<span class='ovpr'>沒有作答</span></div></div>")
     _v.append("</div>")
     st.markdown(f"#### 🗓️ 最近 {_WEEK_DAYS} 天總覽（{_dates8[-1].strftime('%m-%d')} ～ {_dates8[0].strftime('%m-%d')}）")
-    st.caption("每一格是當天每一次練習／測驗的報告標題　｜　名字下面是最近 7／14／30 天的作答天數、測驗題數和正確率（＋練＝練習題數）：綠≥80%、黃60–79%、紅<60%")
+    st.caption("每一格是當天每一次練習／測驗的報告標題（🗣️ 對話練習接在當天最後）　｜　名字下面是最近 7／14／30 天的作答天數、測驗題數和正確率（＋練＝練習題數）：綠≥80%、黃60–79%、紅<60%")
     st.markdown(_css + "".join(_h) + "".join(_v), unsafe_allow_html=True)
 
 # 老師點的學生連結：驗證簽章後直接以該生身分顯示學習報告
@@ -1558,47 +1639,51 @@ if _role == "student":
 
             _render_student_week(_name)  # V2.31：歷次作答上方的 8 天總覽
             st.caption(f"📅 {_stu_from_str} ～ {_stu_to_str}　｜　最後更新：{get_now().strftime('%H:%M:%S')}")
-            if df_mine.empty:
+            _dgrp = _dlg_for_student(_name, _stu_from_str, _stu_to_str)  # V2.44 對話練習
+            if df_mine.empty and not _dgrp:
                 st.info("此時間範圍內無答題資料")
-                _render_dialog_section(_name, _stu_from_str, _stu_to_str)  # V2.43
                 return
 
-            df_a_mine = load_assignments()
-            _aj    = df_a_mine.to_json(orient="records") if not df_a_mine.empty else "[]"
-            _qtask = _build_qid_task_map_all(_aj)
-            df_mine = df_mine.copy()
-            df_mine["_task"] = df_mine["題目ID"].apply(
-                lambda x: _qtask.get(str(x).strip(), _qtask.get(re.sub(r'^[A-Za-z]_', '', str(x).strip()), "")))
-            if "任務名稱" in df_mine.columns:
-                _miss = df_mine["_task"] == ""
-                df_mine.loc[_miss, "_task"] = df_mine.loc[_miss, "任務名稱"].fillna("").astype(str).apply(_strip_task_date)
+            if not df_mine.empty:
+                df_a_mine = load_assignments()
+                _aj    = df_a_mine.to_json(orient="records") if not df_a_mine.empty else "[]"
+                _qtask = _build_qid_task_map_all(_aj)
+                df_mine = df_mine.copy()
+                df_mine["_task"] = df_mine["題目ID"].apply(
+                    lambda x: _qtask.get(str(x).strip(), _qtask.get(re.sub(r'^[A-Za-z]_', '', str(x).strip()), "")))
+                if "任務名稱" in df_mine.columns:
+                    _miss = df_mine["_task"] == ""
+                    df_mine.loc[_miss, "_task"] = df_mine.loc[_miss, "任務名稱"].fillna("").astype(str).apply(_strip_task_date)
 
-            sessions = _build_sessions(df_mine)
-            if not sessions:
+            sessions = _build_sessions(df_mine) if not df_mine.empty else []
+            if not sessions and not _dgrp:
                 st.info("此時間範圍內無答題資料")
-                _render_dialog_section(_name, _stu_from_str, _stu_to_str)  # V2.43
                 return
 
-            if st.session_state.get("_no_session_cols"):
+            if sessions and st.session_state.get("_no_session_cols"):
                 st.caption("ℹ️ 資料庫尚未新增「練習方式／開始時間」欄位，目前依作答時間自動分組，練習方式為推測。")
 
-            # 歷次作答（依開始日期分組，新到舊）
+            # 歷次作答（依開始日期分組，新到舊）；V2.44：每天的對話練習接在當天其他作答後面
             st.markdown(f"#### 📜 歷次作答　{_year_color(_sy_me)[1]} {_name}")  # V2.16：標題旁加學生姓名（V2.17：學年顏色）
-            _cur_day = None
-            for i, s in enumerate(sessions):
-                _day = s["start"].strftime("%Y-%m-%d")
-                if _day != _cur_day:
-                    _cur_day = _day
-                    _day_sess = [x for x in sessions if x["start"].strftime("%Y-%m-%d") == _day]
+            _days = sorted({s["start"].strftime("%Y-%m-%d") for s in sessions} | {x["day"] for x in _dgrp}, reverse=True)
+            for _day in _days:
+                _day_sess = [x for x in sessions if x["start"].strftime("%Y-%m-%d") == _day]
+                _day_dlg = [x for x in _dgrp if x["day"] == _day]
+                _wd = _WEEKDAY_CN[datetime.strptime(_day, "%Y-%m-%d").weekday()]
+                _lbl = f"**📅 {_day}（{_wd}）**　共 {len(_day_sess) + len(_day_dlg)} 次作答"
+                if _day_dlg:
+                    _lbl += f"（🗣️ 對話練習 {len(_day_dlg)} 次）"
+                if _day_sess:
                     _day_el = _sum_elapsed(pd.concat([x["df"] for x in _day_sess], ignore_index=True))
-                    _lbl = f"**📅 {_day}（{_WEEKDAY_CN[s['start'].weekday()]}）**　共 {len(_day_sess)} 次作答"
                     if _day_el:
                         _lbl += f"　⏱ {_day_el}"
-                    st.markdown(_lbl)
-                _summary = _session_summary(s)
-                with st.expander(_summary, expanded=False):
-                    _render_detail(s["df"], key=f"{i}_{s['start'].strftime('%Y%m%d%H%M%S')}")  # V2.41
-            _render_dialog_section(_name, _stu_from_str, _stu_to_str)  # V2.43
+                st.markdown(_lbl)
+                for s in _day_sess:
+                    with st.expander(_session_summary(s), expanded=False):
+                        _render_detail(s["df"], key=f"{sessions.index(s)}_{s['start'].strftime('%Y%m%d%H%M%S')}")  # V2.41
+                for j, x in enumerate(_day_dlg):
+                    with st.expander(_dlg_summary(x), expanded=False):
+                        _render_dlg_detail(x, key=f"dlg_aud_{_day}_{x['aid']}_{x['did']}_{j}")
 
         _stu_report_fragment()
 
@@ -1756,6 +1841,7 @@ def _render_overview_tab():
         _today_class_names.clear()
         _load_logs_range.clear()
         _overview_cells.clear()
+        _dialog_overview.clear()  # V2.44
         st.session_state["ov_loaded"] = True
     if _sel_y:
         df_s = df_s[df_s["_sy"].isin(_sel_y)]
@@ -1792,6 +1878,14 @@ def _render_overview_tab():
         _ovd = _overview_cells(_d_from, _d_to)
     cells = _ovd.get("cells", {})
     cats  = _ovd.get("cat", {})
+    # V2.44：對話練習接在當天其他作答後面；小表格多一列「🗣️對話」
+    _dov = _dialog_overview(_d_from, _d_to)
+    _dcats = _dov.get("cat", {})
+    if _dov.get("lines"):
+        cells = {nm: {d: list(v) for d, v in dd.items()} for nm, dd in cells.items()}
+        for nm, dd in _dov["lines"].items():
+            for d, ls in dd.items():
+                cells.setdefault(nm, {}).setdefault(d, []).extend(ls)
 
     if _only:
         df_s = df_s[df_s["_nm"].isin(list(cells.keys()))]
@@ -1877,6 +1971,14 @@ def _render_overview_tab():
                 _row += f"<td>{_cell}</td>"
                 _st_csv[f"{c}（{k}天）"] = txt
             _mini.append(_row + "</tr>")
+        _dc = _dcats.get(nm, {})  # V2.44
+        _row = "<tr><td>🗣️對話</td>"
+        for k in _PERS:
+            _hc, _tc = _dlg_mini_cell(_dc, _per_ds[k])
+            _row += f"<td>{_hc}</td>"
+            _st_csv[f"對話（{k}天）"] = _tc
+        if _dc:
+            _mini.append(_row + "</tr>")
         _st_html = "".join(_mini) + "</table>"
         _h.append(
             f"<tr><td class='ovname'><a class='ovbadge' style='background:{color}33;border:2px solid {color};color:{_nm_fg} !important' href='{url}' target='_blank'>"
@@ -1898,7 +2000,7 @@ def _render_overview_tab():
 
     _active = sum(1 for nm in df_s["_nm"] if cells.get(nm))
     st.caption(f"輸出時間：{_now.strftime('%Y-%m-%d %H:%M')}　｜　{_d_from} ～ {_d_to}　｜　學生 {len(df_s)} 位，其中 {_active} 位這 30 天有作答")
-    st.caption("🔤單字＝單字題　📝文法＝單選、重組　📖閱讀＝閱讀單句、閱讀重組　｜　名字下面的小表格是最近 7／14／30 天的作答天數、測驗題數和正確率（＋練＝練習題數）：綠≥80%、黃60–79%、紅<60%")
+    st.caption("🔤單字＝單字題　📝文法＝單選、重組　📖閱讀＝閱讀單句、閱讀重組　🗣️對話＝對話練習（句數＋自評說對了的比例）　｜　名字下面的小表格是最近 7／14／30 天的作答天數、測驗題數和正確率（＋練＝練習題數）：綠≥80%、黃60–79%、紅<60%")
     st.markdown(_css + "".join(_h), unsafe_allow_html=True)
     st.download_button("⬇️ 下載這張表（CSV，可用 Excel 開）",
                        pd.DataFrame(_csv_rows).to_csv(index=False).encode("utf-8-sig"),
