@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.44                                     ║
+# ║  dashboard.py  V2.45                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.44"
+DASHBOARD_VERSION = "2.45"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -1132,7 +1132,7 @@ def _add_art(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # ── V2.43：🗣️ 對話練習紀錄（練習系統 dialog_practice.py 寫在 Supabase dialog_logs）──────────
-_DLG_CHECK = {"✅": "說對了", "🔁": "再練", "🎙️": "錄音"}
+_DLG_CHECK = {"✅": "說對了", "🔁": "再練", "🎙️": "錄音", "⏭": "略過（沒錄音）", "🎬": "看完示範"}  # V2.45：⏭／🎬
 
 
 @st.cache_data(ttl=45, show_spinner=False)
@@ -1142,8 +1142,10 @@ def _load_dialog_logs(stu_name: str, date_from: str) -> pd.DataFrame:
         d0 = (datetime.strptime(date_from, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
         res = (get_supabase().table("dialog_logs").select("*").eq("name", stu_name)
                .gte("created_at", d0).order("created_at", desc=False).limit(3000).execute())
+        st.session_state.pop("_dlg_err", None)
         return _dlg_prep(res.data)
-    except Exception:
+    except Exception as e:
+        st.session_state["_dlg_err"] = f"{type(e).__name__}: {e}"[:200]   # V2.45：讀取失敗要看得到
         return pd.DataFrame()
 
 
@@ -1233,9 +1235,11 @@ def _dlg_groups(df: pd.DataFrame) -> list:
         name = titles.get(int(aid), ("", ""))[0] if aid else "（自己試練）"
         name = re.sub(r"^\s*🗣️?\s*", "", name or ref["titles"].get(did, did))
         sc = g["self_check"].astype(str)
+        tn = pd.to_numeric(g["turn_no"], errors="coerce").fillna(0)
         out.append({"day": day, "aid": aid, "did": did, "g": g, "name": name,
                     "start": g["_t"].min(), "end": g["_t"].max(), "rounds": int(g["round_no"].nunique()),
-                    "n": len(g), "ok": int((sc == "✅").sum()), "again": int((sc == "🔁").sum()),
+                    "n": int((tn > 0).sum()), "ok": int((sc == "✅").sum()), "again": int((sc == "🔁").sum()),
+                    "skip": int((sc == "⏭").sum()), "demo": int((sc == "🎬").sum()),
                     "audio": int((g["audio_path"].fillna("").astype(str) != "").sum())})
     out.sort(key=lambda x: x["end"], reverse=True)
     return out
@@ -1243,8 +1247,18 @@ def _dlg_groups(df: pd.DataFrame) -> list:
 
 def _dlg_summary(x: dict, tag: bool = False) -> str:
     """一組對話練習的一行標題（格式同「歷次作答」）"""
-    return (("【🗣️對話】" if tag else "") + f"🕒 {x['start'].strftime('%H:%M:%S')}　🗣️ 對話練習｜{x['name']}"
-            f"　{x['rounds']}輪 {x['n']}句 ✅{x['ok']} 🔁{x['again']}" + (f" 🎙️{x['audio']}" if x["audio"] else ""))
+    s = (("【🗣️對話】" if tag else "") + f"🕒 {x['start'].strftime('%H:%M:%S')}　🗣️ 對話練習｜{x['name']}　{x['rounds']}輪")
+    if x.get("demo"):
+        s += f" 🎬看示範{x['demo']}輪"
+    if x["n"]:
+        s += f" {x['n']}句"
+        if x["ok"] or x["again"]:
+            s += f" ✅{x['ok']} 🔁{x['again']}"
+        if x["audio"]:
+            s += f" 🎙️{x['audio']}"
+        if x.get("skip"):
+            s += f" ⏭{x['skip']}"
+    return s
 
 
 def _dlg_daycat(groups: list) -> dict:
@@ -1316,11 +1330,15 @@ def _render_dlg_detail(x: dict, key: str):
     zmap = {e: z for (d, e), z in ref["zh"].items() if d == did}
     rows = []
     for _, r in x["g"].iterrows():
-        en, zh = ref["turns"].get((did, int(r["turn_no"])), ("", ""))
+        tno = int(pd.to_numeric(r["turn_no"], errors="coerce") or 0)
+        en, zh = ref["turns"].get((did, tno), ("", ""))
+        if tno == 0:  # V2.45：② 全文示範看完一輪
+            _w = "、".join(kv.split("=", 1)[1] for kv in str(r.get("words") or "").split(";") if "=" in kv and not kv.startswith("?"))
+            en, zh = "🎬 看完整段示範" + (f"（單字：{_w}）" if _w else ""), ""
         rows.append({"時間": r["_t"].strftime("%H:%M:%S"), "階段": str(r.get("stage") or ""),
-                     "輪": int(r["round_no"]), "句": int(r["turn_no"]),
-                     "句子": _dlg_fill(en, r.get("words")) or str(r.get("words") or ""),
-                     "中文": _dlg_fill(zh, r.get("words"), zmap),
+                     "輪": int(r["round_no"]), "句": str(tno) if tno else "—",
+                     "句子": (en if tno == 0 else _dlg_fill(en, r.get("words"))) or str(r.get("words") or ""),
+                     "中文": "" if tno == 0 else _dlg_fill(zh, r.get("words"), zmap),
                      "自評": str(r["self_check"]) + " " + _DLG_CHECK.get(str(r["self_check"]), ""),
                      "_audio": str(r.get("audio_path") or "")})
     tdf = pd.DataFrame(rows)
@@ -1640,6 +1658,10 @@ if _role == "student":
             _render_student_week(_name)  # V2.31：歷次作答上方的 8 天總覽
             st.caption(f"📅 {_stu_from_str} ～ {_stu_to_str}　｜　最後更新：{get_now().strftime('%H:%M:%S')}")
             _dgrp = _dlg_for_student(_name, _stu_from_str, _stu_to_str)  # V2.44 對話練習
+            if not _dgrp:  # V2.45
+                _de = st.session_state.get("_dlg_err")
+                st.caption("🗣️ 這段期間沒有對話練習紀錄" + (f"（讀取失敗：{_de}）" if _de else
+                           "（練習系統在錄音、按 ✅／🔁、略過一句或看完一輪示範時才會記錄）"))
             if df_mine.empty and not _dgrp:
                 st.info("此時間範圍內無答題資料")
                 return
