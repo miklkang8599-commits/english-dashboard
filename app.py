@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.45                                     ║
+# ║  dashboard.py  V2.46                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.45"
+DASHBOARD_VERSION = "2.46"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -1215,15 +1215,57 @@ def _dlg_prep(rows) -> pd.DataFrame:
     df = pd.DataFrame(rows or [])
     if df.empty or "created_at" not in df.columns:
         return pd.DataFrame()
-    df["_t"] = pd.to_datetime(df["created_at"], utc=True, errors="coerce").dt.tz_convert("Asia/Taipei").dt.tz_localize(None)
+    df["_t"] = pd.to_datetime(df["created_at"], utc=True, errors="coerce", format="ISO8601").dt.tz_convert("Asia/Taipei").dt.tz_localize(None)
     df = df[df["_t"].notna()].copy()
     df["_day"] = df["_t"].dt.strftime("%Y-%m-%d")
     df["name"] = df["name"].fillna("").astype(str).str.strip()
+    # V2.46：words 最後的「@=代號」（同一次練習代號相同）拆到 _code，其他地方就不會看到它
+    _w = df["words"].fillna("").astype(str) if "words" in df.columns else pd.Series("", index=df.index)
+    df["_code"] = _w.str.extract(r"(?:^|;)@=([^;]*)", expand=False).fillna("").str.strip()
+    df["words"] = _w.str.replace(r"(?:^|;)@=[^;]*", "", regex=True)
     return df
 
 
+# V2.46：關卡名稱（去掉前面的 ①②③；舊名稱換成現在的）
+_DLG_STAGE_OLD = {"跟讀": "全文示範", "看圖說": "看圖練習說", "角色對話": "測驗"}
+_DLG_STAGE_ICON = {"測驗": "📝", "全文示範": "🎬", "看圖練習說": "🖼️"}
+
+def _dlg_stage(s) -> str:
+    s = re.sub(r"^[①②③④⑤\s]+", "", str(s or "")).strip()
+    return _DLG_STAGE_OLD.get(s, s) or "對話練習"
+
+
+def _dlg_attempts(df: pd.DataFrame) -> pd.Series:
+    """V2.46：一位學生的對話紀錄 → 每一筆屬於第幾次練習（每次按「測驗」「看圖練習說」「全文示範」各算一次）
+    新紀錄：練習系統寫在 words 的「@=代號」，代號相同就是同一次。
+    舊紀錄（沒有代號）：換日／換任務／換對話／換關卡、同一輪的單字變了、或回到第一輪第一句，就算新的一次。"""
+    out, no, prev, seen, first, last, code2no = {}, 0, None, {}, None, None, {}
+    for ix, r in df.sort_values(["_t", "id"] if "id" in df.columns else "_t", kind="stable").iterrows():
+        words = str(r.get("words") or "")
+        code = str(r.get("_code") or "")
+        base = (r["_day"], r["_aid"], str(r.get("dialog_id") or ""), _dlg_stage(r.get("stage")))
+        if code:
+            k = base + (code,)
+            if k not in code2no:
+                no += 1
+                code2no[k] = no
+            out[ix] = code2no[k]
+            prev = None
+            continue
+        rno = int(pd.to_numeric(r.get("round_no"), errors="coerce") or 0)
+        pos = (rno, int(pd.to_numeric(r.get("turn_no"), errors="coerce") or 0))
+        if (prev != base or seen.get(rno, words) != words or (pos == first and last != first)
+                or (pos[1] == 0 and pos <= last)):
+            no += 1
+            seen, first = {}, pos
+        seen[rno] = words
+        prev, last = base, pos
+        out[ix] = no
+    return pd.Series(out).reindex(df.index)
+
+
 def _dlg_groups(df: pd.DataFrame) -> list:
-    """對話紀錄 → 每天 × 每個任務一組（新的在前），附統計"""
+    """對話紀錄 → 每一次練習一組（新的在前），附統計；V2.46 起測驗、看圖練習說、全文示範各自分開"""
     if df is None or df.empty:
         return []
     titles = _load_dialog_titles()
@@ -1231,12 +1273,13 @@ def _dlg_groups(df: pd.DataFrame) -> list:
     df = df.copy()
     df["_aid"] = df["assign_id"].apply(lambda x: "" if pd.isna(x) else str(int(x)))
     out = []
-    for (day, aid, did), g in df.groupby(["_day", "_aid", "dialog_id"]):
+    df["_att"] = _dlg_attempts(df)
+    for (day, aid, did, _att), g in df.groupby(["_day", "_aid", "dialog_id", "_att"]):
         name = titles.get(int(aid), ("", ""))[0] if aid else "（自己試練）"
         name = re.sub(r"^\s*🗣️?\s*", "", name or ref["titles"].get(did, did))
         sc = g["self_check"].astype(str)
         tn = pd.to_numeric(g["turn_no"], errors="coerce").fillna(0)
-        out.append({"day": day, "aid": aid, "did": did, "g": g, "name": name,
+        out.append({"day": day, "aid": aid, "did": did, "g": g, "name": name, "stage": _dlg_stage(g["stage"].iloc[0]),
                     "start": g["_t"].min(), "end": g["_t"].max(), "rounds": int(g["round_no"].nunique()),
                     "n": int((tn > 0).sum()), "ok": int((sc == "✅").sum()), "again": int((sc == "🔁").sum()),
                     "skip": int((sc == "⏭").sum()), "demo": int((sc == "🎬").sum()),
@@ -1247,7 +1290,7 @@ def _dlg_groups(df: pd.DataFrame) -> list:
 
 def _dlg_summary(x: dict, tag: bool = False) -> str:
     """一組對話練習的一行標題（格式同「歷次作答」）"""
-    s = (("【🗣️對話】" if tag else "") + f"🕒 {x['start'].strftime('%H:%M:%S')}　🗣️ 對話練習｜{x['name']}　{x['rounds']}輪")
+    s = (("【🗣️對話】" if tag else "") + f"🕒 {x['start'].strftime('%H:%M:%S')}　{_DLG_STAGE_ICON.get(x['stage'], '🗣️')} {x['stage']}｜{x['name']}　{x['rounds']}輪")
     if x.get("demo"):
         s += f" 🎬看示範{x['demo']}輪"
     if x["n"]:
@@ -1705,7 +1748,7 @@ if _role == "student":
                         _render_detail(s["df"], key=f"{sessions.index(s)}_{s['start'].strftime('%Y%m%d%H%M%S')}")  # V2.41
                 for j, x in enumerate(_day_dlg):
                     with st.expander(_dlg_summary(x), expanded=False):
-                        _render_dlg_detail(x, key=f"dlg_aud_{_day}_{x['aid']}_{x['did']}_{j}")
+                        _render_dlg_detail(x, key=f"dlg_aud_{_day}_{x['aid']}_{x['did']}_{x['start'].strftime('%H%M%S')}_{j}")
 
         _stu_report_fragment()
 
