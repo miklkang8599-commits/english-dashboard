@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.48                                     ║
+# ║  dashboard.py  V2.49                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.48"
+DASHBOARD_VERSION = "2.49"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -828,7 +828,10 @@ def _session_stats(g: pd.DataFrame) -> dict:
     err  = int((res == "❌").sum())
     prac = int((res == "練習").sum())
     test = ok + err
+    _rsc = _rd_scores(g)   # V2.49
+    _rdn = int(res.str.contains("朗讀", na=False).sum())
     return {
+        "rd": len(_rsc), "rd_avg": (sum(_rsc) / len(_rsc)) if _rsc else None, "rd_other": _rdn,
         "total": len(g), "ok": ok, "err": err, "prac": prac, "test": test,
         "rate": f"{ok / test * 100:.0f}%" if test else "—",
         "elapsed": _sum_elapsed(g),
@@ -856,8 +859,9 @@ def _session_summary(s: dict) -> str:
     _na = _session_articles(s["df"])
     if _na: txt += f"　{_na}篇"
     if stt["test"]: txt += f"　測驗{stt['test']}題 ✅{stt['ok']} ❌{stt['err']}（{stt['rate']}）"
+    if stt["rd"]: txt += f"　🎤朗讀{stt['rd']}句 平均{stt['rd_avg']:.0f}分"
     if stt["prac"]: txt += f"　練習{stt['prac']}題"
-    other = stt["total"] - stt["test"] - stt["prac"]
+    other = stt["total"] - stt["test"] - stt["prac"] - stt["rd_other"]
     if other > 0:   txt += f"　其他{other}筆"
     if stt["elapsed"]: txt += f"　⏱{stt['elapsed']}"
     return txt
@@ -1128,6 +1132,45 @@ def _qcat(qid) -> str:
     if t in ("單選", "文意文法", "重組", "對話重組"):
         return "文法"
     return "其他"
+
+def _rd_mask(g: pd.DataFrame) -> pd.Series:
+    """V2.49：朗讀紀錄（題目ID 是 R_ 開頭，或結果寫「朗讀」）"""
+    if g is None or g.empty:
+        return pd.Series(dtype=bool)
+    res = g["結果"].astype(str) if "結果" in g.columns else pd.Series("", index=g.index)
+    cat = g["_cat"] if "_cat" in g.columns else (g["題目ID"].apply(_qcat) if "題目ID" in g.columns else pd.Series("", index=g.index))
+    return (cat == "朗讀") | res.str.contains("朗讀", na=False)
+
+
+def _rd_scores(g: pd.DataFrame) -> list:
+    m = _rd_mask(g)
+    if m.empty or not m.any() or "分數" not in g.columns:
+        return []
+    return [float(x) for x in pd.to_numeric(g.loc[m, "分數"], errors="coerce").dropna().tolist()]
+
+
+def _rd_daycat(g: pd.DataFrame) -> dict:
+    """{日期: [朗讀分數, ...]}，給小表格「🎤朗讀」一列用"""
+    out = {}
+    m = _rd_mask(g)
+    if m.empty or not m.any():
+        return out
+    gg = g[m]
+    for _dd, _x in gg.groupby(gg["時間"].astype(str).str[:10]):
+        sc = _rd_scores(_x)
+        if sc:
+            out[_dd] = sc
+    return out
+
+
+def _rd_mini_cell(rdd: dict, days) -> tuple:
+    sc = [x for d, v in (rdd or {}).items() if d in days for x in v]
+    if not sc:
+        return "<span class='ovpr'>—</span>", ""
+    avg = sum(sc) / len(sc)
+    col = "#30a46c" if avg >= 80 else ("#d4a700" if avg >= 60 else "#e5484d")
+    return f"<span style='color:{col};font-weight:600'>{len(sc)}句 {avg:.0f}分</span>", f"{len(sc)}句 平均{avg:.0f}分"
+
 
 def _cat_tag(g: pd.DataFrame) -> str:
     if "_cat" not in g.columns:
@@ -1466,7 +1509,7 @@ def _render_student_week(stu_name: str):
         df = load_logs_for_student(stu_name, date_from=_d_from)
     except Exception:
         df = pd.DataFrame()
-    cells, cat = {}, {}
+    cells, cat, _rdc = {}, {}, {}
     if df is not None and not df.empty and "時間" in df.columns and "題目ID" in df.columns:
         df = df[df["時間"].astype(str).str[:10] <= _d_to]
         if "結果" in df.columns:
@@ -1491,6 +1534,7 @@ def _render_student_week(stu_name: str):
                     cat.setdefault(_dd, {})[_cc] = (int((_r2 == "✅").sum()), int((_r2 == "❌").sum()), int((_r2 == "練習").sum()), set(_gg["_art"].tolist()) - {""})
             for s in _build_sessions(df):  # V2.39：同一天內新的在上（降冪）
                 cells.setdefault(s["start"].strftime("%Y-%m-%d"), []).append(_cat_tag(s["df"]) + _session_summary(s))
+            _rdc = _rd_daycat(df)   # V2.49
     # V2.44：對話練習放在當天其他作答的後面；小表格多一列「🗣️對話」
     _dgrp = _dlg_for_student(stu_name, _d_from, _d_to)
     for x in _dgrp:
@@ -1530,6 +1574,8 @@ def _render_student_week(stu_name: str):
                 _cell = "<span class='ovpr'>—</span>"
             _row += f"<td>{_cell}</td>"
         _mini.append(_row + "</tr>")
+    if _rdc:  # V2.49
+        _mini.append("<tr><td>🎤朗讀</td>" + "".join(f"<td>{_rd_mini_cell(_rdc, _per_ds[k])[0]}</td>" for k in _PERS) + "</tr>")
     if _dcat:  # V2.44
         _mini.append("<tr><td>🗣️對話</td>" + "".join(f"<td>{_dlg_mini_cell(_dcat, _per_ds[k])[0]}</td>" for k in _PERS) + "</tr>")
     _st_html = "".join(_mini) + "</table>"
@@ -1874,7 +1920,7 @@ def _overview_cells(date_from: str, date_to: str) -> dict:
     if "任務名稱" in df.columns:
         _miss = df["_task"] == ""
         df.loc[_miss, "_task"] = df.loc[_miss, "任務名稱"].fillna("").astype(str).apply(_strip_task_date)
-    out, cat = {}, {}
+    out, cat, rdcat = {}, {}, {}
     for nm, g in df.groupby(df["姓名"].astype(str).str.strip()):
         res = g["結果"].astype(str) if "結果" in g.columns else pd.Series("", index=g.index)
         # V2.23：分類小計改成「每天」記錄，畫面上可選 7／14／30 天加總
@@ -1888,7 +1934,10 @@ def _overview_cells(date_from: str, date_to: str) -> dict:
         for s in _build_sessions(g):  # V2.40：學習總覽同一天內也新的在上（降冪）
             d = s["start"].strftime("%Y-%m-%d")
             out.setdefault(nm, {}).setdefault(d, []).append(_cat_tag(s["df"]) + _session_summary(s))
-    return {"cells": out, "cat": cat}
+        _rdd = _rd_daycat(g)   # V2.49
+        if _rdd:
+            rdcat[nm] = _rdd
+    return {"cells": out, "cat": cat, "rd": rdcat}
 
 # V2.30：今天有上課的學生（00C-英文出席管理表 → 02-今天上課人數計算；狀態＝固定／補課／調課，請假不算）
 _ATT_SHEET_URL = "https://docs.google.com/spreadsheets/d/1qc9B70E-t9cBxkb4NG7uHoKwffY9_KEQM_-eUOGJWyQ/edit"
@@ -1987,6 +2036,7 @@ def _render_overview_tab():
         _ovd = _overview_cells(_d_from, _d_to)
     cells = _ovd.get("cells", {})
     cats  = _ovd.get("cat", {})
+    _rdcats = _ovd.get("rd", {})   # V2.49
     # V2.44：對話練習接在當天其他作答後面；小表格多一列「🗣️對話」
     _dov = _dialog_overview(_d_from, _d_to)
     _dcats = _dov.get("cat", {})
@@ -2079,6 +2129,14 @@ def _render_overview_tab():
                     _cell, txt = "<span class='ovpr'>—</span>", ""
                 _row += f"<td>{_cell}</td>"
                 _st_csv[f"{c}（{k}天）"] = txt
+            _mini.append(_row + "</tr>")
+        _rdd = _rdcats.get(nm, {})  # V2.49
+        _row = "<tr><td>🎤朗讀</td>"
+        for k in _PERS:
+            _hc, _tc = _rd_mini_cell(_rdd, _per_ds[k])
+            _row += f"<td>{_hc}</td>"
+            _st_csv[f"朗讀（{k}天）"] = _tc
+        if _rdd:
             _mini.append(_row + "</tr>")
         _dc = _dcats.get(nm, {})  # V2.44
         _row = "<tr><td>🗣️對話</td>"
