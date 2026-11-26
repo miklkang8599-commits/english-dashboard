@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.46                                     ║
+# ║  dashboard.py  V2.47                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.46"
+DASHBOARD_VERSION = "2.47"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -384,24 +384,39 @@ def _render_detail(tdf, key=None):
     if "題目ID"   in detail.columns: col_cfg_d["題目ID"]   = st.column_config.TextColumn("題目",     width=None)
     if "答題時間" in detail.columns: col_cfg_d["答題時間"] = st.column_config.TextColumn("答題時間", width=60)
     if key and "題目ID" in tdf.columns:
-        # V2.41：點表格最左邊的方框選一題 → 跳出視窗（每開一次就換一個 key，關掉後不會一直重開）
-        _cnt = st.session_state.get(f"_qvn_{key}", 0)
-        st.caption("👆 點表格最左邊的小方框選一題，會跳出英文題目、選項、中文翻譯和解析（閱讀題整篇一起看）")
+        # V2.47：點一題只重畫這張表（不會整份報告、8 天總覽一起變灰重跑），選另一題直接換過去
         try:
-            ev = st.dataframe(detail[ordered], use_container_width=True, hide_index=True, column_config=col_cfg_d,
-                              on_select="rerun", selection_mode="single-row", key=f"qv_{key}_{_cnt}")
-        except TypeError:
-            st.dataframe(detail[ordered], use_container_width=True, hide_index=True, column_config=col_cfg_d)
-            return
-        try:
-            _sel = list(ev.selection.rows)
-        except Exception:
-            _sel = []
-        if _sel and 0 <= int(_sel[0]) < len(orig_qids):
-            st.session_state[f"_qvn_{key}"] = _cnt + 1
-            _qv_open(orig_qids[int(_sel[0])], _qv_ans_map(tdf))
+            _detail_sel_frag(detail[ordered], col_cfg_d, orig_qids, _qv_ans_map(tdf), key)
+        except Exception as _e:
+            if type(_e).__name__ in ("StopException", "RerunException", "RerunData"):
+                raise
+            _detail_sel(detail[ordered], col_cfg_d, orig_qids, _qv_ans_map(tdf), key)   # 舊版不能巢狀 fragment
         return
     st.dataframe(detail[ordered], use_container_width=True, hide_index=True, column_config=col_cfg_d)
+
+def _detail_sel(view, cfg, qids, ans_map, key):
+    """V2.47：作答明細表（一次選一題）→ 選的題目換了才跳出視窗"""
+    st.caption("👆 點表格最左邊的小方框選一題，會跳出英文題目、選項、中文翻譯和解析（閱讀題整篇一起看）；選另一題會直接換過去")
+    try:
+        ev = st.dataframe(view, use_container_width=True, hide_index=True, column_config=cfg,
+                          on_select="rerun", selection_mode="single-row", key=f"qv_{key}")
+    except TypeError:
+        st.dataframe(view, use_container_width=True, hide_index=True, column_config=cfg)
+        return
+    try:
+        _sel = [int(i) for i in ev.selection.rows]
+    except Exception:
+        _sel = []
+    cur = _sel[0] if _sel and 0 <= _sel[0] < len(qids) else None
+    if cur != st.session_state.get(f"_qv_last_{key}"):
+        st.session_state[f"_qv_last_{key}"] = cur
+        if cur is not None:
+            _qv_open(qids[cur], ans_map)
+
+
+@st.fragment
+def _detail_sel_frag(view, cfg, qids, ans_map, key):
+    _detail_sel(view, cfg, qids, ans_map, key)
 
 # ── V2.41：作答明細點一題 → 跳出視窗看英文題目、選項、中文翻譯、解析（閱讀題整個題組一起）──
 _QV_CSS = """<style>
