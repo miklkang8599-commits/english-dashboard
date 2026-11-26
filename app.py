@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.47                                     ║
+# ║  dashboard.py  V2.48                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.47"
+DASHBOARD_VERSION = "2.48"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -356,6 +356,20 @@ def _render_detail(tdf, key=None):
         q_lookup  = build_question_lookup(tuple(set(orig_qids)))
         detail["正確答案"] = [q_lookup.get(q, {}).get("答案", "") for q in orig_qids]
         detail["題目ID"]   = [q_lookup.get(q, {}).get("題目", q) for q in orig_qids]
+        # V2.48：閱讀題多一欄「文章」＝第幾篇＋文章開頭（同一篇＝同一個題組）
+        if any(q_lookup.get(q, {}).get("文章") or q_lookup.get(q, {}).get("題組") for q in orig_qids):
+            _nums, _arts = {}, []
+            for q in orig_qids:
+                _i = q_lookup.get(q, {})
+                _p = str(_i.get("文章", "") or "")
+                if not (_p or _i.get("題組")):
+                    _arts.append("")
+                    continue
+                _k = _i.get("題組") or _p[:200]
+                _nums.setdefault(_k, len(_nums) + 1)
+                _sn = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", _p)).strip()
+                _arts.append(f"第{_nums[_k]}篇｜" + ((_sn[:28] + ("…" if len(_sn) > 28 else "")) if _sn else "（沒有文章）"))
+            detail["文章"] = _arts
         # V2.29：英選中＝看英文、選中文 → 題目顯示英文，正確答案顯示中文
         _cjk = r'[\u4e00-\u9fff]'
         _ec = (detail["題目ID"].str.contains(_cjk, regex=True, na=False)
@@ -375,13 +389,14 @@ def _render_detail(tdf, key=None):
             detail.loc[_ec, "題目ID"] = _q_en
     if "答題秒數" in detail.columns:
         detail["答題時間"] = detail["答題秒數"].apply(_fmt_elapsed)
-    ordered = [c for c in ["時間","題目ID","結果","學生答案","正確答案","答題時間"] if c in detail.columns]
+    ordered = [c for c in ["時間","文章","題目ID","結果","學生答案","正確答案","答題時間"] if c in detail.columns]
     col_cfg_d = {}
     if "時間"     in detail.columns: col_cfg_d["時間"]     = st.column_config.TextColumn("時間",     width=70)
     if "結果"     in detail.columns: col_cfg_d["結果"]     = st.column_config.TextColumn("結果",     width=30)
     if "學生答案" in detail.columns: col_cfg_d["學生答案"] = st.column_config.TextColumn("學生答案", width=30)
     if "正確答案" in detail.columns: col_cfg_d["正確答案"] = st.column_config.TextColumn("正確答案", width=30)
     if "題目ID"   in detail.columns: col_cfg_d["題目ID"]   = st.column_config.TextColumn("題目",     width=None)
+    if "文章"     in detail.columns: col_cfg_d["文章"]     = st.column_config.TextColumn("文章（同一篇＝同一個題組）", width=200)
     if "答題時間" in detail.columns: col_cfg_d["答題時間"] = st.column_config.TextColumn("答題時間", width=60)
     if key and "題目ID" in tdf.columns:
         # V2.47：點一題只重畫這張表（不會整份報告、8 天總覽一起變灰重跑），選另一題直接換過去
@@ -847,6 +862,20 @@ def _session_summary(s: dict) -> str:
     if stt["elapsed"]: txt += f"　⏱{stt['elapsed']}"
     return txt
 
+def _qlk_info(sheet: str, row, df, content: str, answer: str) -> dict:
+    """V2.48：閱讀單句的「答案」欄是整篇文章 → 正確答案改用「正確選項列出」，文章另外放（同題組只有一列填文章時，用同題組的）"""
+    out = {"題目": content if content else answer, "答案": answer}
+    if sheet == "閱讀單句":
+        cor = str(row.get("正確選項列出", "") or "").strip().upper()
+        grp = str(row.get("題組", "") or "").strip()
+        psg = str(answer or "").strip()
+        if not psg and grp and "題組" in df.columns and "答案" in df.columns:
+            _same = df[df["題組"].astype(str).str.strip() == grp]["答案"].astype(str).str.strip()
+            psg = next((v for v in _same if v and v != "nan"), "")
+        out.update({"題目": content or "", "答案": cor, "題組": grp, "文章": psg})
+    return out
+
+
 @st.cache_data(ttl=600)
 def build_question_lookup(qids: tuple) -> dict:
     """給定一組 question_id，回傳 {qid: {'題目': ..., '答案': ...}} 字典"""
@@ -891,7 +920,7 @@ def build_question_lookup(qids: tuple) -> dict:
                 row = rows.iloc[0]
                 content = str(row[content_col]) if content_col and content_col in df.columns else ""
                 answer  = str(row[answer_col])  if answer_col  and answer_col  in df.columns else ""
-                result[qid] = {"題目": content if content else answer, "答案": answer}
+                result[qid] = _qlk_info(cfg["sheet"], row, df, content, answer)
 
     # 未比對到的：多重判斷嘗試單選工作表
     if unmatched:
@@ -931,7 +960,7 @@ def build_question_lookup(qids: tuple) -> dict:
                     row = rows.iloc[0]
                     content = str(row[content_col]) if content_col in df_try.columns else ""
                     answer  = str(row[answer_col])  if answer_col  in df_try.columns else ""
-                    result[qid] = {"題目": content if content else answer, "答案": answer}
+                    result[qid] = _qlk_info("閱讀單句" if df_try is df_read else "單選", row, df_try, content, answer)
                     break
     return result
 
