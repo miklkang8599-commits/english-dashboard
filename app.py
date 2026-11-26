@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════╗
 # ║  英文全能練習系統 — 全班學習報告 (獨立版)                ║
-# ║  dashboard.py  V2.49                                     ║
+# ║  dashboard.py  V2.50                                     ║
 # ╚══════════════════════════════════════════════════════════╝
 
 import streamlit as st
@@ -25,7 +25,7 @@ def _keepalive():
 _keepalive()
 
 # ── 常數 ──────────────────────────────────────────────────────────────────────
-DASHBOARD_VERSION = "2.49"
+DASHBOARD_VERSION = "2.50"
 
 LOGS_COLS = {
     "created_at": "時間", "name": "姓名", "group_id": "分組",
@@ -1870,7 +1870,7 @@ if _role == "student":
 
 # ── V2.18：學習總覽（左邊學生、上面日期，最近 30 天，第一欄＝今天）─────────────────
 _OV_DAYS   = 30
-_OV_FIELDS = "created_at,name,question_id,result,task_name,elapsed_sec"
+_OV_FIELDS = "created_at,name,question_id,result,score,task_name,elapsed_sec"  # V2.50：加 score（朗讀分數）
 
 # V2.31：_OV_CATS／_OV_CAT_ICON／_qcat／_cat_tag 已移到前面（學生報告的 8 天總覽也要用）
 
